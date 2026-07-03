@@ -259,48 +259,55 @@ export const WindyVelocityLayer: React.FC<WindyVelocityLayerProps> = ({
     };
 
     const getFlowVector = (lat: number, lon: number) => {
+      let baseVector = { u: 0, v: 0, speed: 0, sst: 28.0, pressure: 1008, humidity: 80, salinity: 32.5 };
+
       if (gridDataRef.current) {
         const gridVal = interpolateGridValue(lat, lon);
         if (gridVal.speed > 0 || gridVal.sst > 0) {
-          return gridVal;
+          baseVector = gridVal;
         }
-      }
-
-      // Mathematical vortex fallback
-      if (activeCycloneCenter) {
-        const dx = activeCycloneCenter[1] - lon;
-        const dy = activeCycloneCenter[0] - lat;
-        const r = Math.sqrt(dx * dx + dy * dy);
-        
-        if (r < 0.1) return { u: 0, v: 0, speed: 0, sst: 29.5, pressure: 980, humidity: 95, salinity: 32 };
-        
-        const tx = -dy / r;
-        const ty = dx / r;
-        const rx = dx / r;
-        const ry = dy / r;
-        
-        // counter-clockwise spiral
-        const u = tx * 0.85 + rx * 0.15;
-        const v = ty * 0.85 + ry * 0.15;
-        const speed = Math.max(5.0, peakWindSpeed * Math.min(2.0, 0.5 / r));
-        
-        return {
-          u: u * speed * 0.15,
-          v: v * speed * 0.15,
-          speed,
-          sst: 29.5, pressure: 985, humidity: 90, salinity: 32.5
+      } else {
+        // Fallback trade flow
+        const baseU = lat < 10 ? -0.8 : 1.2;
+        const baseV = Math.sin(lon * 0.15) * 0.25;
+        baseVector = {
+          u: baseU,
+          v: baseV,
+          speed: Math.sqrt(baseU * baseU + baseV * baseV),
+          sst: 28.0,
+          pressure: 1008,
+          humidity: 80,
+          salinity: 32.5
         };
       }
 
-      // Default trade flow
-      const baseU = lat < 10 ? -0.8 : 1.2;
-      const baseV = Math.sin(lon * 0.15) * 0.25;
-      return {
-        u: baseU,
-        v: baseV,
-        speed: Math.sqrt(baseU*baseU + baseV*baseV) * 6,
-        sst: 28.0, pressure: 1008, humidity: 80, salinity: 33.0
-      };
+      // Layer cyclonic vortex overlay (spiraling inward circulation scaling by storm intensity)
+      if (activeCycloneCenter) {
+        const dx = lon - activeCycloneCenter[1]; // lon diff
+        const dy = lat - activeCycloneCenter[0]; // lat diff
+        const r = Math.sqrt(dx * dx + dy * dy);
+
+        if (r > 0.05 && r < 6.5) { // Cyclone influence radius (up to 650km)
+          const tx = -dy / r; // tangential U component
+          const ty = dx / r;  // tangential V component
+          const rx = -dx / r; // radial inwards U component
+          const ry = -dy / r; // radial inwards V component
+
+          // Swirl vector (82% tangential swirl, 18% radial spiral inflow)
+          const u_vort = tx * 0.82 + rx * 0.18;
+          const v_vort = ty * 0.82 + ry * 0.18;
+
+          // Swirl speed profiles (peaks around eye-wall RMW, then falls off with 1/r)
+          const scale = Math.max(2.0, peakWindSpeed * Math.min(2.2, 0.6 / r));
+
+          // Combine baseline vector with storm swirl velocity
+          baseVector.u += u_vort * scale * 0.12;
+          baseVector.v += v_vort * scale * 0.12;
+          baseVector.speed = Math.sqrt(baseVector.u * baseVector.u + baseVector.v * baseVector.v);
+        }
+      }
+
+      return baseVector;
     };
 
     // Shaders positions & colors attributes buffers
