@@ -278,7 +278,59 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       return;
     }
 
-    if (['sst', 'rain', 'surge', 'cape', 'pressure', 'cloud', 'insat_ir', 'insat_vis', 'flood', 'wind_risk'].includes(layer.id)) {
+    const layerSrcId = `${layer.id}-src`;
+    const layerId = `${layer.id}-layer`;
+
+    // 1. Real-time RainViewer Meteorological Radar
+    if (layer.id === 'rain') {
+      mapInstance.addSource(layerSrcId, {
+        type: 'raster',
+        tiles: ['https://tilecache.rainviewer.com/v2/radar/newest/256/{z}/{x}/{y}/2/1_1.png'],
+        tileSize: 256
+      });
+      mapInstance.addLayer({
+        id: layerId,
+        type: 'raster',
+        source: layerSrcId,
+        paint: { 'raster-opacity': layer.opacity }
+      }, mapInstance.getLayer('district-layer') ? 'district-layer' : undefined);
+      return;
+    }
+
+    // 2. Real-time NASA GIBS Sea Surface Temperature (SST)
+    if (layer.id === 'sst') {
+      mapInstance.addSource(layerSrcId, {
+        type: 'raster',
+        tiles: ['https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GHRSST_L4_MUR_Sea_Surface_Temperature/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png'],
+        tileSize: 256
+      });
+      mapInstance.addLayer({
+        id: layerId,
+        type: 'raster',
+        source: layerSrcId,
+        paint: { 'raster-opacity': layer.opacity }
+      }, mapInstance.getLayer('district-layer') ? 'district-layer' : undefined);
+      return;
+    }
+
+    // 3. Real-time NASA GIBS Satellite Clouds Imagery (Visible and Infrared fallback)
+    if (['cloud', 'insat_vis', 'insat_ir'].includes(layer.id)) {
+      mapInstance.addSource(layerSrcId, {
+        type: 'raster',
+        tiles: ['https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg'],
+        tileSize: 256
+      });
+      mapInstance.addLayer({
+        id: layerId,
+        type: 'raster',
+        source: layerSrcId,
+        paint: { 'raster-opacity': layer.opacity }
+      }, mapInstance.getLayer('district-layer') ? 'district-layer' : undefined);
+      return;
+    }
+
+    // 4. Fallback Simulated Layers (Pressure, CAPE, Surge, Flood, Wind Risk)
+    if (['surge', 'cape', 'pressure', 'flood', 'wind_risk'].includes(layer.id)) {
       const features = [];
       const startLat = 5.0;
       const endLat = 25.0;
@@ -289,13 +341,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       for (let lat = startLat; lat < endLat; lat += step) {
         for (let lon = startLon; lon < endLon; lon += step) {
           let valueColor = '#ffffff';
-          if (layer.id === 'sst') {
-            const temp = 25 + (25 - lat) * 0.25;
-            valueColor = temp > 30 ? '#ef4444' : temp > 28 ? '#f97316' : temp > 26 ? '#eab308' : '#3b82f6';
-          } else if (layer.id === 'rain') {
-            const rand = Math.sin(lat * 0.5) * Math.cos(lon * 0.5);
-            valueColor = rand > 0.5 ? '#1d4ed8' : rand > 0.2 ? '#2563eb' : rand > 0.0 ? '#3b82f6' : 'transparent';
-          } else if (layer.id === 'surge') {
+          if (layer.id === 'surge') {
             const isCoastal = (lon > 80 && lon < 87 && lat > 10 && lat < 22);
             valueColor = isCoastal ? '#a855f7' : 'transparent';
           } else if (layer.id === 'cape') {
@@ -306,8 +352,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             const highFlood = lat > 18 && lon > 84 && lon < 88;
             valueColor = highFlood ? '#22c55e' : '#86efac';
           } else {
-            const isCloudy = Math.sin(lat + lon) > 0.3;
-            valueColor = isCloudy ? '#e2e8f0' : 'transparent';
+            valueColor = '#f59e0b';
           }
 
           if (valueColor !== 'transparent') {
@@ -328,9 +373,6 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           }
         }
       }
-
-      const layerSrcId = `${layer.id}-src`;
-      const layerId = `${layer.id}-layer`;
 
       mapInstance.addSource(layerSrcId, {
         type: 'geojson',
