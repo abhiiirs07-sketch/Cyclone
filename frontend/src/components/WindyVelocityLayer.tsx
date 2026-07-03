@@ -1,12 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
-import type { WeatherLayerType } from './MapContainer';
 
 interface WindyVelocityLayerProps {
   map: maplibregl.Map | null;
   activeCycloneCenter: [number, number] | null;
   peakWindSpeed: number;
-  layerType: WeatherLayerType;
+  gisLayers: any[];
 }
 
 const VERTEX_SHADER_SOURCE = `
@@ -32,15 +31,24 @@ export const WindyVelocityLayer: React.FC<WindyVelocityLayerProps> = ({
   map,
   activeCycloneCenter,
   peakWindSpeed,
-  layerType
+  gisLayers
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationRef = useRef<number | null>(null);
   const gridDataRef = useRef<any>(null);
 
+  const windLayer = gisLayers?.find(l => l.id === 'wind');
+  const windVisible = windLayer ? windLayer.visible : true;
+  const windOpacity = windLayer ? windLayer.opacity : 0.85;
+
+  let layerType: any = 'wind';
+  if (gisLayers?.find(l => l.id === 'rain')?.visible) layerType = 'rain';
+  else if (gisLayers?.find(l => l.id === 'surge')?.visible) layerType = 'surge';
+  else if (gisLayers?.find(l => l.id === 'wave')?.visible) layerType = 'wave';
+
   // Fetch live weather vector grid from backend API
   useEffect(() => {
-    if (!layerType) return;
+    if (!windVisible) return;
     
     const fetchLiveGrid = async () => {
       try {
@@ -68,10 +76,10 @@ export const WindyVelocityLayer: React.FC<WindyVelocityLayerProps> = ({
     fetchLiveGrid();
     const timer = setInterval(fetchLiveGrid, 30000);
     return () => clearInterval(timer);
-  }, [activeCycloneCenter, layerType]);
+  }, [activeCycloneCenter, windVisible]);
 
   useEffect(() => {
-    if (!map || !canvasRef.current || !layerType) {
+    if (!map || !canvasRef.current || !windVisible) {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
@@ -420,7 +428,13 @@ export const WindyVelocityLayer: React.FC<WindyVelocityLayerProps> = ({
       gl.deleteBuffer(colorBuffer);
       gl.deleteProgram(program);
     };
-  }, [map, activeCycloneCenter, peakWindSpeed, layerType]);
+  }, [map, activeCycloneCenter, peakWindSpeed, windVisible, layerType]);
 
-  return <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none z-[400] w-full h-full" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute top-0 left-0 pointer-events-none z-[400] w-full h-full"
+      style={{ opacity: windOpacity, display: windVisible ? 'block' : 'none' }}
+    />
+  );
 };

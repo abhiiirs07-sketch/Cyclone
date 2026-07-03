@@ -6,12 +6,13 @@ import { Eye, Map as MapIcon, Layers, Maximize2, Compass, PencilLine, Trash2, Sl
 
 export type WeatherLayerType = 'wind' | 'rain' | 'sst' | 'surge' | 'wave' | 'current' | 'pressure' | 'humidity' | 'visibility' | 'salinity' | null;
 
+import { type GisLayer } from './GisLayerManager';
+
 interface MapContainerProps {
   cycloneTrack: any[];
   forecastTrack: any[]; // Can be single track or ensemble dict
   districtGeoJSON: any;
-  layerType: WeatherLayerType;
-  setLayerType: (type: WeatherLayerType) => void;
+  gisLayers: GisLayer[];
   drawingMode: boolean;
   setDrawingMode: (mode: boolean) => void;
   drawnPoints: any[];
@@ -75,8 +76,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   cycloneTrack,
   forecastTrack,
   districtGeoJSON,
-  layerType,
-  setLayerType,
+  gisLayers,
   drawingMode,
   setDrawingMode,
   drawnPoints,
@@ -244,6 +244,163 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       firstLabelLayerId
     );
   };
+
+  const createDynamicLayer = (mapInstance: maplibregl.Map, layer: GisLayer) => {
+    if (layer.id === 'rivers') {
+      const riverCoords = [
+        [[84.0, 19.5], [85.0, 19.8], [86.2, 20.15]],
+        [[81.0, 16.2], [81.8, 16.5], [82.2, 16.8]],
+        [[79.5, 15.5], [80.1, 15.8], [80.5, 16.0]],
+      ];
+      
+      mapInstance.addSource('rivers-src', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: riverCoords.map((coords, i) => ({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: coords },
+            properties: { id: i }
+          }))
+        }
+      });
+
+      mapInstance.addLayer({
+        id: 'river-layer',
+        type: 'line',
+        source: 'rivers-src',
+        paint: {
+          'line-color': '#38bdf8',
+          'line-width': 2.0,
+          'line-opacity': layer.opacity
+        }
+      });
+      return;
+    }
+
+    if (['sst', 'rain', 'surge', 'cape', 'pressure', 'cloud', 'insat_ir', 'insat_vis', 'flood', 'wind_risk'].includes(layer.id)) {
+      const features = [];
+      const startLat = 5.0;
+      const endLat = 25.0;
+      const startLon = 70.0;
+      const endLon = 95.0;
+      const step = 2.0;
+
+      for (let lat = startLat; lat < endLat; lat += step) {
+        for (let lon = startLon; lon < endLon; lon += step) {
+          let valueColor = '#ffffff';
+          if (layer.id === 'sst') {
+            const temp = 25 + (25 - lat) * 0.25;
+            valueColor = temp > 30 ? '#ef4444' : temp > 28 ? '#f97316' : temp > 26 ? '#eab308' : '#3b82f6';
+          } else if (layer.id === 'rain') {
+            const rand = Math.sin(lat * 0.5) * Math.cos(lon * 0.5);
+            valueColor = rand > 0.5 ? '#1d4ed8' : rand > 0.2 ? '#2563eb' : rand > 0.0 ? '#3b82f6' : 'transparent';
+          } else if (layer.id === 'surge') {
+            const isCoastal = (lon > 80 && lon < 87 && lat > 10 && lat < 22);
+            valueColor = isCoastal ? '#a855f7' : 'transparent';
+          } else if (layer.id === 'cape') {
+            valueColor = lat < 12 ? '#ef4444' : '#eab308';
+          } else if (layer.id === 'pressure') {
+            valueColor = '#475569';
+          } else if (layer.id === 'flood') {
+            const highFlood = lat > 18 && lon > 84 && lon < 88;
+            valueColor = highFlood ? '#22c55e' : '#86efac';
+          } else {
+            const isCloudy = Math.sin(lat + lon) > 0.3;
+            valueColor = isCloudy ? '#e2e8f0' : 'transparent';
+          }
+
+          if (valueColor !== 'transparent') {
+            features.push({
+              type: 'Feature',
+              geometry: {
+                type: 'Polygon',
+                coordinates: [[
+                  [lon, lat],
+                  [lon + step, lat],
+                  [lon + step, lat + step],
+                  [lon, lat + step],
+                  [lon, lat]
+                ]]
+              },
+              properties: { color: valueColor }
+            });
+          }
+        }
+      }
+
+      const layerSrcId = `${layer.id}-src`;
+      const layerId = `${layer.id}-layer`;
+
+      mapInstance.addSource(layerSrcId, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features }
+      });
+
+      mapInstance.addLayer(
+        {
+          id: layerId,
+          type: 'fill',
+          source: layerSrcId,
+          paint: {
+            'fill-color': ['get', 'color'],
+            'fill-opacity': layer.opacity
+          }
+        },
+        mapInstance.getLayer('district-layer') ? 'district-layer' : undefined
+      );
+    }
+  };
+
+  // Sync visibilities and opacities across all active viewport maps
+  useEffect(() => {
+    const activeMaps = [leftMap, rightMap].filter(Boolean) as maplibregl.Map[];
+    if (activeMaps.length === 0) return;
+
+    const syncLayers = () => {
+      activeMaps.forEach(mapInstance => {
+        if (!mapInstance.isStyleLoaded()) return;
+
+        gisLayers.forEach(layer => {
+          const mapLayerId = layer.id === 'districts' ? 'district-layer' :
+                             layer.id === 'shelters' ? 'shelter-layer' :
+                             layer.id === 'rivers' ? 'river-layer' : `${layer.id}-layer`;
+
+          const layerObj = mapInstance.getLayer(mapLayerId);
+          if (layerObj) {
+            mapInstance.setLayoutProperty(mapLayerId, 'visibility', layer.visible ? 'visible' : 'none');
+            
+            try {
+              const type = layerObj.type;
+              if (type === 'fill') {
+                mapInstance.setPaintProperty(mapLayerId, 'fill-opacity', layer.opacity);
+              } else if (type === 'line') {
+                mapInstance.setPaintProperty(mapLayerId, 'line-opacity', layer.opacity);
+              } else if (type === 'circle') {
+                mapInstance.setPaintProperty(mapLayerId, 'circle-opacity', layer.opacity);
+              } else if (type === 'raster') {
+                mapInstance.setPaintProperty(mapLayerId, 'raster-opacity', layer.opacity);
+              }
+            } catch (e) {
+              console.warn('Sync opacity failed for', mapLayerId, e);
+            }
+          } else if (layer.visible) {
+            createDynamicLayer(mapInstance, layer);
+          }
+        });
+      });
+    };
+
+    leftMap?.on('styledata', syncLayers);
+    rightMap?.on('styledata', syncLayers);
+
+    syncLayers();
+
+    return () => {
+      leftMap?.off('styledata', syncLayers);
+      rightMap?.off('styledata', syncLayers);
+    };
+  }, [leftMap, rightMap, gisLayers]);
 
   useEffect(() => {
     if (!leftMap) return;
@@ -876,7 +1033,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         map={leftMap}
         activeCycloneCenter={cycloneTrack.length > 0 ? [cycloneTrack[cycloneTrack.length - 1].lat, cycloneTrack[cycloneTrack.length - 1].lon] : null}
         peakWindSpeed={cycloneTrack.length > 0 ? cycloneTrack[cycloneTrack.length - 1].wind_speed : 45}
-        layerType={layerType}
+        gisLayers={gisLayers}
       />
 
       {/* 8. floating GIS Tool overlays */}
@@ -885,7 +1042,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         {/* Basemaps Toggle Drawer */}
         <div className="relative">
           <button
-            onClick={() => { setShowBasemapMenu(!showBasemapMenu); setShowLayersMenu(false); }}
+            onClick={() => { setShowBasemapMenu(!showBasemapMenu); }}
             className="bg-slate-900/85 backdrop-blur border border-white/10 hover:border-white/25 rounded-lg p-2.5 shadow-2xl text-slate-300 hover:text-slate-100 flex items-center gap-2 text-xs font-semibold"
           >
             <MapIcon className="w-4 h-4 text-indigo-400" />
@@ -921,47 +1078,6 @@ export const MapContainer: React.FC<MapContainerProps> = ({
                   ))}
                 </div>
               )}
-            </div>
-          )}
-        </div>
-
-        {/* Dynamic Parameter layers Toggle Drawer */}
-        <div className="relative">
-          <button
-            onClick={() => { setShowLayersMenu(!showLayersMenu); setShowBasemapMenu(false); }}
-            className="bg-slate-900/85 backdrop-blur border border-white/10 hover:border-white/25 rounded-lg p-2.5 shadow-2xl text-slate-300 hover:text-slate-100 flex items-center gap-2 text-xs font-semibold"
-          >
-            <Layers className="w-4 h-4 text-indigo-400" />
-            <span>Overlay Layers</span>
-          </button>
-          
-          {showLayersMenu && (
-            <div className="absolute right-0 mt-1.5 w-44 bg-slate-950/95 backdrop-blur border border-white/10 rounded-xl p-2.5 shadow-2xl space-y-1 z-50 text-xs">
-              {[
-                { type: 'wind', name: 'Wind Particle Flow' },
-                { type: 'rain', name: 'Rainfall Radar' },
-                { type: 'sst', name: 'SST Heatmap' },
-                { type: 'surge', name: 'Storm Surge Surge' },
-                { type: 'wave', name: 'Wave Heights' },
-                { type: 'current', name: 'Ocean Currents' },
-                { type: 'pressure', name: 'Pressure Contours' },
-                { type: 'humidity', name: 'Relative Humidity' },
-                { type: 'salinity', name: 'Ocean Salinity' }
-              ].map((l) => (
-                <button
-                  key={l.type}
-                  onClick={() => setLayerType(l.type as WeatherLayerType)}
-                  className={`w-full text-left p-1.5 rounded transition-all ${layerType === l.type ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/30' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}
-                >
-                  {l.name}
-                </button>
-              ))}
-              <button
-                onClick={() => setLayerType(null)}
-                className={`w-full text-left p-1.5 rounded text-red-400 hover:bg-white/5 transition-all`}
-              >
-                Clear Overlays
-              </button>
             </div>
           )}
         </div>

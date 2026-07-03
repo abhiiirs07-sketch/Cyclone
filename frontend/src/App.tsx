@@ -1,15 +1,35 @@
 import { useState, useEffect } from 'react';
-import { MapContainer, type WeatherLayerType } from './components/MapContainer';
+import { MapContainer } from './components/MapContainer';
 import { HistoricalExplorer } from './components/HistoricalExplorer';
 import { AIForecastPanel } from './components/AIForecastPanel';
 import { DamageAssessment } from './components/DamageAssessment';
 import { EmergencyDecision } from './components/EmergencyDecision';
 import { MapComparisonPanel } from './components/MapComparisonPanel';
 import { LoginScreen } from './components/LoginScreen';
+import { GisLayerManager, type GisLayer } from './components/GisLayerManager';
+import { exportToCSV, exportToGeoJSON, exportToGeoTIFF, exportRawGeoJSON } from './utils/GisExportHelper';
 import { AIAssistantChat } from './components/AIAssistantChat';
-import { Shield, Cpu, Calendar, ShieldAlert } from 'lucide-react';
+import { Shield, Cpu, Calendar, ShieldAlert, Layers } from 'lucide-react';
 
 const API_BASE = window.location.origin.includes('localhost') ? "http://127.0.0.1:8000" : window.location.origin;
+
+const INITIAL_GIS_LAYERS: GisLayer[] = [
+  { id: 'wind', name: 'Wind Velocity Flow (WebGL)', visible: true, opacity: 0.85, category: 'met' },
+  { id: 'pressure', name: 'Barometric Isobars (MSLP)', visible: false, opacity: 0.7, category: 'met' },
+  { id: 'rain', name: 'Radar Rainfall Precipitation', visible: false, opacity: 0.75, category: 'met', legend: { colors: ['#60a5fa', '#3b82f6', '#2563eb', '#1d4ed8'], labels: ['Light', 'Moderate', 'Heavy', 'Torrential'] } },
+  { id: 'cloud', name: 'Cloud Cover Coverage', visible: false, opacity: 0.5, category: 'met' },
+  { id: 'cape', name: 'Convective Instability (CAPE)', visible: false, opacity: 0.6, category: 'met' },
+  { id: 'sst', name: 'Sea Surface Temperature (SST)', visible: false, opacity: 0.8, category: 'ocean', legend: { colors: ['#3b82f6', '#eab308', '#f97316', '#ef4444'], labels: ['24°C', '26°C', '28°C', '30°C+'] } },
+  { id: 'wave', name: 'Significant Wave Height', visible: false, opacity: 0.7, category: 'ocean' },
+  { id: 'surge', name: 'Storm Surge Inundation', visible: false, opacity: 0.85, category: 'ocean', legend: { colors: ['#c084fc', '#a855f7', '#7e22ce'], labels: ['0.5m', '1.5m', '3.0m+'] } },
+  { id: 'insat_ir', name: 'INSAT IR (Cloud Top Temp)', visible: false, opacity: 0.8, category: 'sat' },
+  { id: 'insat_vis', name: 'INSAT Visible Spectrum', visible: false, opacity: 0.75, category: 'sat' },
+  { id: 'districts', name: 'District Administrative Boundaries', visible: true, opacity: 0.6, category: 'admin' },
+  { id: 'rivers', name: 'River Channels & Watersheds', visible: true, opacity: 0.5, category: 'admin' },
+  { id: 'shelters', name: 'Resiliency Shelters & Camps', visible: true, opacity: 0.9, category: 'admin' },
+  { id: 'flood', name: 'Flood Susceptibility Zone', visible: false, opacity: 0.7, category: 'hazard', legend: { colors: ['#86efac', '#4ade80', '#22c55e'], labels: ['Low', 'Medium', 'High'] } },
+  { id: 'wind_risk', name: 'Wind Inundation Susceptibility', visible: false, opacity: 0.65, category: 'hazard' }
+];
 
 function App() {
   const [user, setUser] = useState<{ email: string; name: string } | null>(null);
@@ -33,7 +53,7 @@ function App() {
     setUser(null);
   };
 
-  const [activeTab, setActiveTab] = useState<'historical' | 'forecast' | 'damage' | 'emergency'>('historical');
+  const [activeTab, setActiveTab] = useState<'historical' | 'forecast' | 'layers' | 'damage' | 'emergency'>('historical');
   const [selectedCycloneId, setSelectedCycloneId] = useState<number | null>(null);
   const [activeCycloneName, setActiveCycloneName] = useState<string | null>(null);
   
@@ -55,8 +75,19 @@ function App() {
   const [drawingMode, setDrawingMode] = useState<boolean>(false);
   const [drawnPoints, setDrawnPoints] = useState<any[]>([]);
   
-  // Layer and loading states
-  const [layerType, setLayerType] = useState<WeatherLayerType>('wind');
+  // GIS and responsive states
+  const [gisLayers, setGisLayers] = useState<GisLayer[]>(INITIAL_GIS_LAYERS);
+  const [isMobile, setIsMobile] = useState<boolean>(window.innerWidth < 768);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const [loadingForecast, setLoadingForecast] = useState<boolean>(false);
   const [loadingAssessment, setLoadingAssessment] = useState<boolean>(false);
   const [downloadingReport, setDownloadingReport] = useState<boolean>(false);
@@ -235,6 +266,16 @@ function App() {
     setActiveCycloneName(null);
   };
 
+  const handleExportLayer = (layerId: string) => {
+    if (layerId === 'districts') {
+      exportRawGeoJSON({ type: 'FeatureCollection', features: districtGeoJSON?.features || [] }, 'districts.geojson');
+    } else if (layerId === 'surge' || layerId === 'flood') {
+      exportToCSV(assessmentData, `${layerId}_risk_grids.csv`);
+    } else {
+      exportToGeoTIFF(`${layerId}_raster.tiff`);
+    }
+  };
+
   // Compile and download PDF summary
   const handleDownloadReport = async () => {
     if (!selectedCycloneId && activeCycloneName !== "Simulated Path") return;
@@ -271,8 +312,7 @@ function App() {
           cycloneTrack={cycloneTrack.slice(0, timelineIndex + 1)}
           forecastTrack={forecastTrack}
           districtGeoJSON={districtGeoJSON}
-          layerType={layerType}
-          setLayerType={setLayerType}
+          gisLayers={gisLayers}
           drawingMode={drawingMode}
           setDrawingMode={setDrawingMode}
           drawnPoints={drawnPoints}
@@ -311,117 +351,222 @@ function App() {
         </button>
       </div>
 
-      {/* 3. Floating Control Panels Sidebar (slide-out, left-aligned) */}
-      <div className="absolute top-24 left-4 bottom-16 z-40 w-96 flex flex-col pointer-events-auto transition-sidebar glass-panel rounded-xl shadow-2xl">
-        {/* Horizontal Navigation Tabs */}
-        <div className="grid grid-cols-4 border-b border-white/5 bg-slate-950/40 rounded-t-xl p-1 gap-1">
-          <button
-            onClick={() => setActiveTab('historical')}
-            className={`flex flex-col items-center justify-center py-2.5 rounded-lg text-[10px] font-semibold gap-1 transition-all ${
-              activeTab === 'historical' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Calendar className="w-4 h-4" />
-            Archive
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('forecast')}
-            className={`flex flex-col items-center justify-center py-2.5 rounded-lg text-[10px] font-semibold gap-1 transition-all ${
-              activeTab === 'forecast' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Cpu className="w-4 h-4" />
-            AI Forecast
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('damage')}
-            className={`flex flex-col items-center justify-center py-2.5 rounded-lg text-[10px] font-semibold gap-1 transition-all ${
-              activeTab === 'damage' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Shield className="w-4 h-4" />
-            Impact
-          </button>
+      {/* 3. Floating Control Panels Sidebar (slide-out, left-aligned) - Desktop Only */}
+      {!isMobile && (
+        <div className="absolute top-24 left-4 bottom-16 z-40 w-96 flex flex-col pointer-events-auto transition-sidebar glass-panel rounded-xl shadow-2xl">
+          {/* Horizontal Navigation Tabs */}
+          <div className="grid grid-cols-5 border-b border-white/5 bg-slate-950/40 rounded-t-xl p-1 gap-1">
+            <button
+              onClick={() => setActiveTab('historical')}
+              className={`flex flex-col items-center justify-center py-2 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
+                activeTab === 'historical' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              Archive
+            </button>
+            
+            <button
+              onClick={() => setActiveTab('forecast')}
+              className={`flex flex-col items-center justify-center py-2 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
+                activeTab === 'forecast' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Cpu className="w-3.5 h-3.5" />
+              Forecast
+            </button>
 
-          <button
-            onClick={() => setActiveTab('emergency')}
-            className={`flex flex-col items-center justify-center py-2.5 rounded-lg text-[10px] font-semibold gap-1 transition-all ${
-              activeTab === 'emergency' ? 'bg-red-500/20 text-red-400 border border-red-500/25 shadow-inner animate-pulse' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <ShieldAlert className="w-4 h-4" />
-            Dispatch
-          </button>
-        </div>
+            <button
+              onClick={() => setActiveTab('layers')}
+              className={`flex flex-col items-center justify-center py-2 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
+                activeTab === 'layers' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Layers
+            </button>
+            
+            <button
+              onClick={() => setActiveTab('damage')}
+              className={`flex flex-col items-center justify-center py-2 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
+                activeTab === 'damage' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Shield className="w-3.5 h-3.5" />
+              Impact
+            </button>
 
-        {/* Dynamic sub-panels */}
-        <div className="flex-1 overflow-hidden">
-          {activeTab === 'historical' && (
-            <div className="flex flex-col h-full overflow-hidden">
-              <div className="flex-1 overflow-hidden">
-                <HistoricalExplorer
-                  onSelectCyclone={handleSelectCyclone}
-                  selectedCycloneId={selectedCycloneId}
-                  compareCycloneId={compareCycloneId}
-                  compareMode={compareMode}
-                  setCompareMode={setCompareMode}
-                  API_BASE={API_BASE}
-                />
-              </div>
-              {compareMode && (
-                <div className="p-3 border-t border-white/5 bg-slate-950/40">
-                  <MapComparisonPanel
-                    cycloneA={cycloneA}
-                    cycloneB={cycloneB}
-                    assessmentA={assessmentData}
-                    assessmentB={assessmentData2}
+            <button
+              onClick={() => setActiveTab('emergency')}
+              className={`flex flex-col items-center justify-center py-2 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
+                activeTab === 'emergency' ? 'bg-red-500/20 text-red-400 border border-red-500/25 shadow-inner animate-pulse' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              Dispatch
+            </button>
+          </div>
+
+          {/* Dynamic sub-panels */}
+          <div className="flex-1 overflow-hidden">
+            {activeTab === 'historical' && (
+              <div className="flex flex-col h-full overflow-hidden">
+                <div className="flex-1 overflow-hidden">
+                  <HistoricalExplorer
+                    onSelectCyclone={handleSelectCyclone}
+                    selectedCycloneId={selectedCycloneId}
+                    compareCycloneId={compareCycloneId}
+                    compareMode={compareMode}
+                    setCompareMode={setCompareMode}
+                    API_BASE={API_BASE}
                   />
                 </div>
-              )}
-            </div>
-          )}
-          
-          {activeTab === 'forecast' && (
-            <AIForecastPanel
-              forecastPoints={forecastTrack}
-              onTriggerForecast={handleTriggerForecast}
-              loadingForecast={loadingForecast}
-              activeCycloneName={activeCycloneName}
-              customMode={activeCycloneName === "Simulated Path"}
-              onClearCustom={handleClearCustom}
-            />
-          )}
-          
-          {activeTab === 'damage' && (
-            <DamageAssessment
-              assessmentData={assessmentData}
-              loading={loadingAssessment}
-              onDownloadReport={handleDownloadReport}
-              downloadingReport={downloadingReport}
-            />
-          )}
+                {compareMode && (
+                  <div className="p-3 border-t border-white/5 bg-slate-950/40">
+                    <MapComparisonPanel
+                      cycloneA={cycloneA}
+                      cycloneB={cycloneB}
+                      assessmentA={assessmentData}
+                      assessmentB={assessmentData2}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {activeTab === 'forecast' && (
+              <AIForecastPanel
+                forecastPoints={forecastTrack}
+                onTriggerForecast={handleTriggerForecast}
+                loadingForecast={loadingForecast}
+                activeCycloneName={activeCycloneName}
+                customMode={activeCycloneName === "Simulated Path"}
+                onClearCustom={handleClearCustom}
+              />
+            )}
 
-          {activeTab === 'emergency' && (
-            <EmergencyDecision
-              activeCycloneName={activeCycloneName}
-              landfallState={assessmentData?.district_details?.[0]?.state || "Odisha"}
-              onPlotSafeCorridors={() => setSafeCorridorsPlotted(!safeCorridorsPlotted)}
-              safeCorridorsPlotted={safeCorridorsPlotted}
-            />
-          )}
+            {activeTab === 'layers' && (
+              <GisLayerManager
+                layers={gisLayers}
+                onChange={setGisLayers}
+                onExport={handleExportLayer}
+              />
+            )}
+            
+            {activeTab === 'damage' && (
+              <DamageAssessment
+                assessmentData={assessmentData}
+                loading={loadingAssessment}
+                onDownloadReport={handleDownloadReport}
+                downloadingReport={downloadingReport}
+              />
+            )}
+
+            {activeTab === 'emergency' && (
+              <EmergencyDecision
+                activeCycloneName={activeCycloneName}
+                landfallState={assessmentData?.district_details?.[0]?.state || "Odisha"}
+                onPlotSafeCorridors={() => setSafeCorridorsPlotted(!safeCorridorsPlotted)}
+                safeCorridorsPlotted={safeCorridorsPlotted}
+              />
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* 4. Floating Time Travel Player Toolbar */}
-      {cycloneTrack.length > 0 && (
+      {/* Mobile Swipeable Bottom Sheet */}
+      {isMobile && mobilePanelOpen && (
+        <div className="absolute inset-x-0 bottom-0 z-50 bg-slate-950/95 backdrop-blur-lg border-t border-white/10 rounded-t-2xl max-h-[75vh] flex flex-col pointer-events-auto transition-transform duration-300">
+          <div className="w-full flex justify-center py-3 cursor-pointer" onClick={() => setMobilePanelOpen(false)}>
+            <div className="w-12 h-1 bg-white/20 rounded-full" />
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-20">
+            {activeTab === 'historical' && (
+              <HistoricalExplorer
+                onSelectCyclone={handleSelectCyclone}
+                selectedCycloneId={selectedCycloneId}
+                compareCycloneId={compareCycloneId}
+                compareMode={compareMode}
+                setCompareMode={setCompareMode}
+                API_BASE={API_BASE}
+              />
+            )}
+            {activeTab === 'forecast' && (
+              <AIForecastPanel
+                forecastPoints={forecastTrack}
+                onTriggerForecast={handleTriggerForecast}
+                loadingForecast={loadingForecast}
+                activeCycloneName={activeCycloneName}
+                customMode={activeCycloneName === "Simulated Path"}
+                onClearCustom={handleClearCustom}
+              />
+            )}
+            {activeTab === 'layers' && (
+              <GisLayerManager
+                layers={gisLayers}
+                onChange={setGisLayers}
+                onExport={handleExportLayer}
+              />
+            )}
+            {activeTab === 'damage' && (
+              <DamageAssessment
+                assessmentData={assessmentData}
+                loading={loadingAssessment}
+                onDownloadReport={handleDownloadReport}
+                downloadingReport={downloadingReport}
+              />
+            )}
+            {activeTab === 'emergency' && (
+              <EmergencyDecision
+                activeCycloneName={activeCycloneName}
+                landfallState={assessmentData?.district_details?.[0]?.state || "Odisha"}
+                onPlotSafeCorridors={() => setSafeCorridorsPlotted(!safeCorridorsPlotted)}
+                safeCorridorsPlotted={safeCorridorsPlotted}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Bottom Navigation Bar (Minimum Touch Target 48px) */}
+      {isMobile && (
+        <div className="absolute bottom-0 inset-x-0 z-40 bg-slate-950/90 backdrop-blur-md border-t border-white/10 h-16 grid grid-cols-5 pointer-events-auto items-center">
+          {[
+            { id: 'historical', label: 'Archive', icon: Calendar },
+            { id: 'forecast', label: 'Forecast', icon: Cpu },
+            { id: 'layers', label: 'Layers', icon: Layers },
+            { id: 'damage', label: 'Damage', icon: ShieldAlert },
+            { id: 'emergency', label: 'Response', icon: Shield }
+          ].map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id as any);
+                  setMobilePanelOpen(true);
+                }}
+                className={`flex flex-col items-center justify-center h-full gap-1 text-[9px] font-semibold transition-colors ${
+                  activeTab === tab.id && mobilePanelOpen ? 'text-indigo-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                style={{ minHeight: '48px' }}
+              >
+                <Icon className="w-5 h-5" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 4. Floating Time Travel Player Toolbar - Desktop Only */}
+      {!isMobile && cycloneTrack.length > 0 && (
         <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 w-[650px] glass-panel rounded-xl px-5 py-3 shadow-2xl flex items-center justify-between gap-4 pointer-events-auto border border-white/10">
           {/* Play/Pause Button */}
           <button
             onClick={() => {
               if (timelineIndex >= cycloneTrack.length - 1) {
-                setTimelineIndex(0); // restart if at the end
+                setTimelineIndex(0);
               }
               setIsPlaying(!isPlaying);
             }}
@@ -479,8 +624,8 @@ function App() {
         </div>
       )}
 
-      {/* 5. Floating AI Assistant Chatbot Overlay */}
-      <AIAssistantChat API_BASE={API_BASE} />
+      {/* 5. Floating AI Assistant Chatbot Overlay - Desktop Only */}
+      {!isMobile && <AIAssistantChat API_BASE={API_BASE} />}
     </div>
   );
 }
