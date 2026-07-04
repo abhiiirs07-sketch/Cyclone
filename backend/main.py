@@ -492,85 +492,141 @@ def chat_assistant(input_data: ChatInput, db: Session = Depends(get_db)):
     }
 
 @app.get("/api/weather/live")
-def get_live_weather_grid(cyclone_id: Optional[int] = None, db: Session = Depends(get_db)):
+def get_live_weather_grid(
+    cyclone_id: Optional[int] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    wind_speed: Optional[float] = None,
+    pressure: Optional[float] = None,
+    category: Optional[str] = None,
+    exclude_vortex: bool = Query(False),
+    db: Session = Depends(get_db)
+):
     """
-    Generate a 2D meteorological flow field (velocity grid) over the Indian Ocean / Bay of Bengal.
+    Generate a 2D high-resolution meteorological flow field (velocity grid) over the Indian Ocean.
     Grid encompasses coordinates: Lat 0°N to 30°N, Lon 60°E to 100°E.
-    Superimposes active cyclonic vortex spirals on top of background southwest monsoon flows.
+    Superimposes active cyclonic vortex spirals on top of background synoptic flows.
     """
     import math
     from gis_processing import haversine_distance
 
-    lat_range = list(range(0, 32, 2)) # 16 grid steps
-    lon_range = list(range(60, 102, 2)) # 21 grid steps
+    # Higher resolution 1.0 degree grid step (total 31 * 41 = 1271 nodes)
+    lat_range = list(range(0, 31, 1))
+    lon_range = list(range(60, 101, 1))
     
-    # Check if a cyclone eye center is active
-    eye_lat, eye_lon, peak_wind = None, None, 30.0
-    if cyclone_id:
-        cyclone = db.query(CycloneMetadata).filter(CycloneMetadata.id == cyclone_id).first()
-        if cyclone and cyclone.tracks:
-            # Get latest track point coordinates
-            tracks = sorted(cyclone.tracks, key=lambda t: t.timestamp)
-            last_track = tracks[-1]
-            eye_lat = last_track.lat
-            eye_lon = last_track.lon
-            peak_wind = last_track.wind_speed
+    # Check if a cyclone eye center is active (prefer query params, fallback to DB metadata)
+    eye_lat = lat
+    eye_lon = lon
+    peak_wind = wind_speed
+    peak_pressure = pressure
+
+    if eye_lat is None or eye_lon is None:
+        if cyclone_id:
+            cyclone = db.query(CycloneMetadata).filter(CycloneMetadata.id == cyclone_id).first()
+            if cyclone and cyclone.tracks:
+                # Use latest point
+                tracks = sorted(cyclone.tracks, key=lambda t: t.timestamp)
+                last_track = tracks[-1]
+                eye_lat = last_track.lat
+                eye_lon = last_track.lon
+                if peak_wind is None:
+                    peak_wind = last_track.wind_speed
+                if peak_pressure is None:
+                    peak_pressure = last_track.pressure
+
+    if peak_wind is None:
+        peak_wind = 30.0
+    if peak_pressure is None:
+        peak_pressure = 1008.0
 
     grid_points = []
-    for lat in lat_range:
-        for lon in lon_range:
-            # 1. Background Southwest Monsoon Wind flow components (moving northeast)
-            u_bg = 12.0 + math.sin(lat / 10.0) * 4.0
-            v_bg = 8.0 + math.cos(lon / 10.0) * 2.0
-            rain_bg = max(0.0, 1.0 + math.sin(lon / 5.0) * 2.0) # background rainbands
+    for lat_val in lat_range:
+        for lon_val in lon_range:
+            # 1. Multi-scale High-Fidelity Synoptic Flow Model
+            # A. Latitudinal baseline: Southwesterly Monsoon vs. Easterly Trade winds
+            # Smooth sigmoid transition between 5°N and 10°N
+            weight_monsoon = 1.0 / (1.0 + math.exp(-(lat_val - 8.0) / 2.0))
+            u_trade = -7.5 + math.sin(lon_val / 5.0) * 1.5
+            v_trade = -1.0 + math.cos(lon_val / 6.0) * 1.0
             
+            u_monsoon = 13.0 + math.sin(lat_val / 4.0) * 2.5
+            v_monsoon = 9.0 + math.cos(lon_val / 5.0) * 2.0
+            
+            u_bg = u_trade * (1.0 - weight_monsoon) + u_monsoon * weight_monsoon
+            v_bg = v_trade * (1.0 - weight_monsoon) + v_monsoon * weight_monsoon
+
+            # B. Subtropical Arabian High-pressure ridge (clockwise circulation centered at 25°N, 45°E)
+            dx_high = lon_val - 45.0
+            dy_high = lat_val - 25.0
+            dist_high = math.sqrt(dx_high**2 + dy_high**2)
+            if dist_high > 0:
+                high_u = (dy_high / dist_high) * 12.0 * math.exp(-dist_high / 22.0)
+                high_v = (-dx_high / dist_high) * 12.0 * math.exp(-dist_high / 22.0)
+                u_bg += high_u
+                v_bg += high_v
+
+            # C. Synoptic micro-eddies and shear turbulence
+            u_bg += 2.0 * math.sin(lat_val / 2.0) * math.cos(lon_val / 3.0)
+            v_bg += 1.8 * math.cos(lat_val / 3.0) * math.sin(lon_val / 2.0)
+
+            rain_bg = max(0.0, 0.5 + math.sin(lon_val / 3.5) * 1.2 + math.cos(lat_val / 4.0) * 0.8)
+
             u, v, rain, surge_u, surge_v = u_bg, v_bg, rain_bg, u_bg * 0.02, v_bg * 0.02
             dist_eye = 9999.0
-            
-            # 2. Superimpose cyclonic circulation if cyclone eye is present
-            if eye_lat is not None and eye_lon is not None:
-                dist_eye = haversine_distance(lat, lon, eye_lat, eye_lon)
+
+            # 2. Superimpose dynamic cyclonic vortex (Asymmetric Rankine swirl)
+            if not exclude_vortex and eye_lat is not None and eye_lon is not None:
+                dist_eye = haversine_distance(lat_val, lon_val, eye_lat, eye_lon)
                 
-                if dist_eye < 650.0: # active storm area (650 km radius)
-                    # Angular coordinate relative to center
-                    theta = math.atan2(lat - eye_lat, lon - eye_lon)
+                if dist_eye < 700.0:  # Active storm radius (700km)
+                    theta = math.atan2(lat_val - eye_lat, lon_val - eye_lon)
                     
-                    # Spiral-in direction (Northern Hemisphere counter-clockwise rotation)
+                    # 80% tangential swirl, 20% radial inflow (Northern Hemisphere counter-clockwise spiral)
                     su = -math.sin(theta) * 0.80 - math.cos(theta) * 0.20
                     sv = math.cos(theta) * 0.80 - math.sin(theta) * 0.20
                     
-                    # Rankine Vortex model speed profile
-                    Rmax = 80.0 # radius of max wind (km)
+                    # Dynamic radius of max wind (Rmax shrinks as storm intensifies)
+                    Rmax = max(35.0, 85.0 - 0.4 * peak_wind)
+                    
+                    # Rotational speed profile
                     if dist_eye <= Rmax:
                         spd = (dist_eye / Rmax) * peak_wind
                     else:
-                        spd = peak_wind * math.pow(Rmax / dist_eye, 0.55)
-                        
+                        spd = peak_wind * math.pow(Rmax / dist_eye, 0.52)
+                    
+                    # Asymmetry: wind speed is stronger on the right side of direction of motion (typically North/East)
+                    asymmetry = 1.0 + 0.15 * math.sin(theta - math.pi / 4.0)
+                    spd *= asymmetry
+                    
                     u_cyc = su * spd
                     v_cyc = sv * spd
-                    weight = math.exp(-dist_eye / 220.0)
                     
-                    # Merge background flow with cyclonic vortex
+                    # Gaussian blending weight
+                    weight = math.exp(-dist_eye / 200.0)
+                    
                     u = u_bg * (1.0 - weight) + u_cyc * weight
                     v = v_bg * (1.0 - weight) + v_cyc * weight
-                    rain = rain_bg * (1.0 - weight) + (15.0 + 35.0 * weight * (math.sin(dist_eye / 25.0) + 1.0) / 2.0) * weight
                     
-                    # Storm surge current (proportional to wind stress)
-                    surge_u = u * 0.08 * weight
-                    surge_v = v * 0.08 * weight
+                    # Spiraling rain bands (sine wave of distance and theta)
+                    spiral_bands = math.sin(dist_eye / 20.0 - theta * 3.0)
+                    rain = rain_bg * (1.0 - weight) + (18.0 + 38.0 * weight * (spiral_bands + 1.0) / 2.0) * weight
+                    
+                    # Storm surge current (proportional to wind stress near storm core)
+                    surge_u = u * 0.09 * weight
+                    surge_v = v * 0.09 * weight
 
             # 3. Secondary Environmental Fields
-            sst_val = 29.5 - 2.8 * math.exp(-dist_eye / 120.0) if dist_eye < 650.0 else 29.5 + 0.5 * math.sin(lat/10.0)
+            sst_val = 29.8 - 3.2 * math.exp(-dist_eye / 110.0) if dist_eye < 700.0 else 29.8 + 0.4 * math.sin(lat_val/8.0)
             local_wind_spd = math.sqrt(u*u + v*v)
-            wave_val = 1.2 + 0.09 * local_wind_spd * math.exp(-dist_eye / 160.0) if dist_eye < 650.0 else 1.2 + 0.025 * local_wind_spd
-            salinity_val = 33.8 - 2.2 * math.exp(-dist_eye / 90.0) if dist_eye < 650.0 else 33.8
-            pressure_val = 1008.0 - (1008.0 - (910.0 if peak_wind > 120 else 950.0 if peak_wind > 80 else 980.0)) * math.exp(-dist_eye / 140.0) if dist_eye < 650.0 else 1008.0 - 2.0 * math.sin(lat/6.0)
-            humidity_val = 74.0 + 24.0 * math.exp(-dist_eye / 180.0) if dist_eye < 650.0 else 74.0 + 4.0 * math.sin(lon/8.0)
-            visibility_val = 12.0 - 11.6 * math.exp(-dist_eye / 75.0) if dist_eye < 650.0 else 12.0
+            wave_val = 1.0 + 0.08 * local_wind_spd * math.exp(-dist_eye / 150.0) if dist_eye < 700.0 else 1.0 + 0.02 * local_wind_spd
+            salinity_val = 33.6 - 2.5 * math.exp(-dist_eye / 80.0) if dist_eye < 700.0 else 33.6
+            pressure_val = 1010.0 - (1010.0 - peak_pressure) * math.exp(-dist_eye / 130.0) if dist_eye < 700.0 else 1010.0 - 2.0 * math.sin(lat_val/5.0)
+            humidity_val = 75.0 + 23.0 * math.exp(-dist_eye / 160.0) if dist_eye < 700.0 else 75.0 + 3.0 * math.sin(lon_val/6.0)
+            visibility_val = 15.0 - 14.5 * math.exp(-dist_eye / 65.0) if dist_eye < 700.0 else 15.0
 
             grid_points.append({
-                "lat": float(lat),
-                "lon": float(lon),
+                "lat": float(lat_val),
+                "lon": float(lon_val),
                 "u": float(u),
                 "v": float(v),
                 "rain": float(rain),

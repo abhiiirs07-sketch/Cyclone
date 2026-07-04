@@ -5,6 +5,8 @@ interface WindyVelocityLayerProps {
   map: maplibregl.Map | null;
   activeCycloneCenter: [number, number] | null;
   peakWindSpeed: number;
+  activeCyclonePressure?: number;
+  activeCycloneCategory?: string;
   gisLayers: any[];
 }
 
@@ -31,6 +33,8 @@ export const WindyVelocityLayer: React.FC<WindyVelocityLayerProps> = ({
   map,
   activeCycloneCenter,
   peakWindSpeed,
+  activeCyclonePressure = 1008,
+  activeCycloneCategory = '',
   gisLayers
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -46,15 +50,14 @@ export const WindyVelocityLayer: React.FC<WindyVelocityLayerProps> = ({
   else if (gisLayers?.find(l => l.id === 'surge')?.visible) layerType = 'surge';
   else if (gisLayers?.find(l => l.id === 'wave')?.visible) layerType = 'wave';
 
-  // Fetch live weather vector grid from backend API
+  // Fetch live background weather vector grid from backend API (exclude vortex to overlay it smoothly in real time)
   useEffect(() => {
     if (!windVisible) return;
     
     const fetchLiveGrid = async () => {
       try {
-        const idParam = activeCycloneCenter ? "?cyclone_id=1" : "";
         const apiBase = window.location.origin.includes('localhost') ? "http://127.0.0.1:8000" : window.location.origin;
-        const res = await fetch(`${apiBase}/api/weather/live${idParam}`);
+        const res = await fetch(`${apiBase}/api/weather/live?exclude_vortex=true`);
         const data = await res.json();
         
         const gridMap: { [key: string]: any } = {};
@@ -76,7 +79,7 @@ export const WindyVelocityLayer: React.FC<WindyVelocityLayerProps> = ({
     fetchLiveGrid();
     const timer = setInterval(fetchLiveGrid, 30000);
     return () => clearInterval(timer);
-  }, [activeCycloneCenter, windVisible]);
+  }, [windVisible]);
 
   useEffect(() => {
     if (!map || !canvasRef.current || !windVisible) {
@@ -196,16 +199,19 @@ export const WindyVelocityLayer: React.FC<WindyVelocityLayerProps> = ({
         return { u: 0, v: 0, speed: 0, sst: 0, pressure: 0, humidity: 0, salinity: 0 };
       }
       
-      const latIndex = Math.floor(lat / 2.0);
-      const lonIndex = Math.floor((lon - 60.0) / 2.0);
+      const stepLat = lat_range.length > 1 ? lat_range[1] - lat_range[0] : 1.0;
+      const stepLon = lon_range.length > 1 ? lon_range[1] - lon_range[0] : 1.0;
+
+      const latIndex = Math.floor(lat / stepLat);
+      const lonIndex = Math.floor((lon - minLon) / stepLon);
       
-      const lat0 = latIndex * 2;
-      const lat1 = Math.min(maxLat, lat0 + 2);
-      const lon0 = 60 + lonIndex * 2;
-      const lon1 = Math.min(maxLon, lon0 + 2);
+      const lat0 = latIndex * stepLat;
+      const lat1 = Math.min(maxLat, lat0 + stepLat);
+      const lon0 = minLon + lonIndex * stepLon;
+      const lon1 = Math.min(maxLon, lon0 + stepLon);
       
-      const x_frac = (lon - lon0) / 2.0;
-      const y_frac = (lat - lat0) / 2.0;
+      const x_frac = (lon - lon0) / stepLon;
+      const y_frac = (lat - lat0) / stepLat;
       
       const n00 = nodes[`${lat0}_${lon0}`];
       const n10 = nodes[`${lat0}_${lon1}`];

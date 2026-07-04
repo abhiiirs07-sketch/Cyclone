@@ -1075,6 +1075,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         map={leftMap}
         activeCycloneCenter={cycloneTrack.length > 0 ? [cycloneTrack[cycloneTrack.length - 1].lat, cycloneTrack[cycloneTrack.length - 1].lon] : null}
         peakWindSpeed={cycloneTrack.length > 0 ? cycloneTrack[cycloneTrack.length - 1].wind_speed : 45}
+        activeCyclonePressure={cycloneTrack.length > 0 ? cycloneTrack[cycloneTrack.length - 1].pressure : 1008}
+        activeCycloneCategory={cycloneTrack.length > 0 ? cycloneTrack[cycloneTrack.length - 1].category : ''}
         gisLayers={gisLayers}
       />
 
