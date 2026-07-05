@@ -389,25 +389,41 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
     // 1. Real-time RainViewer Meteorological Radar
     if (layer.id === 'rain') {
-      mapInstance.addSource(layerSrcId, {
-        type: 'raster',
-        tiles: ['https://tilecache.rainviewer.com/v2/radar/newest/256/{z}/{x}/{y}/2/1_1.png'],
-        tileSize: 256
-      });
-      mapInstance.addLayer({
-        id: layerId,
-        type: 'raster',
-        source: layerSrcId,
-        paint: { 'raster-opacity': layer.opacity }
-      }, mapInstance.getLayer('district-layer') ? 'district-layer' : undefined);
+      // RainViewer requires fetching the latest available radar timestamp
+      fetch('https://api.rainviewer.com/public/weather-maps.json')
+        .then(r => r.json())
+        .then(apiData => {
+          const radarFrames = apiData?.radar?.past;
+          if (!radarFrames || radarFrames.length === 0) return;
+          const latestPath = radarFrames[radarFrames.length - 1].path;
+          const tileUrl = `https://tilecache.rainviewer.com${latestPath}/256/{z}/{x}/{y}/2/1_1.png`;
+
+          if (mapInstance.getSource(layerSrcId)) return; // already added
+
+          mapInstance.addSource(layerSrcId, {
+            type: 'raster',
+            tiles: [tileUrl],
+            tileSize: 256
+          });
+          mapInstance.addLayer({
+            id: layerId,
+            type: 'raster',
+            source: layerSrcId,
+            paint: { 'raster-opacity': layer.opacity }
+          }, mapInstance.getLayer('district-layer') ? 'district-layer' : undefined);
+        })
+        .catch(e => console.warn('RainViewer API unavailable:', e));
       return;
     }
 
     // 2. Real-time NASA GIBS Sea Surface Temperature (SST)
     if (layer.id === 'sst') {
+      // GIBS needs a date; use yesterday for availability
+      const d = new Date(); d.setDate(d.getDate() - 1);
+      const dateStr = d.toISOString().split('T')[0];
       mapInstance.addSource(layerSrcId, {
         type: 'raster',
-        tiles: ['https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GHRSST_L4_MUR_Sea_Surface_Temperature/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png'],
+        tiles: [`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GHRSST_L4_MUR_Sea_Surface_Temperature/default/${dateStr}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`],
         tileSize: 256
       });
       mapInstance.addLayer({
@@ -419,11 +435,13 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       return;
     }
 
-    // 3. Real-time NASA GIBS Satellite Clouds Imagery (Visible and Infrared fallback)
+    // 3. Real-time NASA GIBS Satellite Clouds Imagery (MODIS True Color)
     if (['cloud', 'insat_vis', 'insat_ir'].includes(layer.id)) {
+      const d = new Date(); d.setDate(d.getDate() - 1);
+      const dateStr = d.toISOString().split('T')[0];
       mapInstance.addSource(layerSrcId, {
         type: 'raster',
-        tiles: ['https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg'],
+        tiles: [`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/${dateStr}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`],
         tileSize: 256
       });
       mapInstance.addLayer({
