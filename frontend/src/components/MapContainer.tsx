@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { WindyVelocityLayer } from './WindyVelocityLayer';
-import { Eye, Map as MapIcon, Layers, Maximize2, Compass, PencilLine, Trash2, Sliders, Split, Ruler, Square, Play, ShieldAlert, Sparkles, Navigation } from 'lucide-react';
+import { Eye, Map as MapIcon, Layers, Maximize2, Compass, PencilLine, Trash2, Sliders, Split, Ruler, Square, Play, ShieldAlert, Sparkles, Navigation, ZoomIn, ZoomOut, Camera, FileJson } from 'lucide-react';
 
 export type WeatherLayerType = 'wind' | 'rain' | 'sst' | 'surge' | 'wave' | 'current' | 'pressure' | 'humidity' | 'visibility' | 'salinity' | null;
 
@@ -112,6 +112,77 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const [cumulativeDistance, setCumulativeDistance] = useState<number>(0);
   const [showBuffers, setShowBuffers] = useState<boolean>(true);
 
+  const handleZoomIn = () => {
+    if (leftMap) leftMap.zoomIn();
+    if (rightMap) rightMap.zoomIn();
+  };
+
+  const handleZoomOut = () => {
+    if (leftMap) leftMap.zoomOut();
+    if (rightMap) rightMap.zoomOut();
+  };
+
+  const handleCompassReset = () => {
+    if (leftMap) leftMap.easeTo({ bearing: 0, pitch: 15, duration: 800 });
+    if (rightMap) rightMap.easeTo({ bearing: 0, pitch: 15, duration: 800 });
+  };
+
+  const handle3DTiltToggle = () => {
+    if (!leftMap) return;
+    const curPitch = leftMap.getPitch();
+    const targetPitch = curPitch > 30 ? 0 : 60;
+    leftMap.easeTo({ pitch: targetPitch, duration: 800 });
+    if (rightMap) rightMap.easeTo({ pitch: targetPitch, duration: 800 });
+  };
+
+  const handleCaptureScreenshot = () => {
+    if (!leftMap) return;
+    const canvas = leftMap.getCanvas();
+    const dataUrl = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.download = `GeoCyclone_Map_Snapshot.png`;
+    link.href = dataUrl;
+    link.click();
+  };
+
+  const handleExportGeoJSON = () => {
+    let geojson;
+    if (drawnPoints && drawnPoints.length > 0) {
+      geojson = {
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: drawnPoints.map(pt => [pt.lon, pt.lat])
+          },
+          properties: { name: 'Simulated Path' }
+        }]
+      };
+    } else if (cycloneTrack && cycloneTrack.length > 0) {
+      geojson = {
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: cycloneTrack.map(pt => [pt.lon, pt.lat])
+          },
+          properties: { name: 'Observed Track' }
+        }]
+      };
+    } else {
+      alert("No track coordinates available to export.");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cyclone_track.geojson`;
+    link.click();
+  };
+
   // Force swipe active when compareMode is enabled
   useEffect(() => {
     if (compareMode) {
@@ -130,8 +201,9 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       center: [82.5, 15.5],
       zoom: 5.0,
       pitch: 15,
-      bearing: 0
-    });
+      bearing: 0,
+      preserveDrawingBuffer: true
+    } as any);
 
     map1.on('mousemove', (e) => {
       setCoords({ lat: e.lngLat.lat, lon: e.lngLat.lng });
@@ -160,8 +232,9 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       center: leftMap ? leftMap.getCenter() : [82.5, 15.5],
       zoom: leftMap ? leftMap.getZoom() : 5.0,
       pitch: leftMap ? leftMap.getPitch() : 15,
-      bearing: leftMap ? leftMap.getBearing() : 0
-    });
+      bearing: leftMap ? leftMap.getBearing() : 0,
+      preserveDrawingBuffer: true
+    } as any);
 
     setRightMap(map2);
 
@@ -1083,6 +1156,59 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       {/* 8. floating GIS Tool overlays */}
       <div className="absolute top-20 right-4 z-40 flex flex-col gap-2 pointer-events-auto">
         
+        {/* Navigation & Camera Controls */}
+        <div className="bg-slate-900/85 backdrop-blur border border-white/10 rounded-xl p-2 shadow-2xl flex flex-col gap-1 text-slate-300">
+          <span className="font-semibold text-slate-400 block text-[9.5px] uppercase tracking-widest px-1 text-center py-1">Camera HUD</span>
+          <div className="grid grid-cols-2 gap-1">
+            <button
+              onClick={handleZoomIn}
+              className="p-2 rounded bg-slate-950/60 border border-white/5 hover:border-white/15 hover:text-white flex items-center justify-center"
+              title="Zoom In"
+            >
+              <ZoomIn className="w-4 h-4 text-indigo-400" />
+            </button>
+            <button
+              onClick={handleZoomOut}
+              className="p-2 rounded bg-slate-950/60 border border-white/5 hover:border-white/15 hover:text-white flex items-center justify-center"
+              title="Zoom Out"
+            >
+              <ZoomOut className="w-4 h-4 text-indigo-400" />
+            </button>
+            <button
+              onClick={handle3DTiltToggle}
+              className="p-2 rounded bg-slate-950/60 border border-white/5 hover:border-white/15 hover:text-white flex items-center justify-center gap-1.5 text-[10px] font-semibold col-span-2"
+              title="Toggle 3D Globe Pitch"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-indigo-400" />
+              3D Terrain Pitch
+            </button>
+            <button
+              onClick={handleCompassReset}
+              className="p-2 rounded bg-slate-950/60 border border-white/5 hover:border-white/15 hover:text-white flex items-center justify-center gap-1.5 text-[10px] font-semibold col-span-2"
+              title="Reset Compass True North"
+            >
+              <Compass className="w-3.5 h-3.5 text-indigo-400" />
+              True North
+            </button>
+            <button
+              onClick={handleCaptureScreenshot}
+              className="p-2 rounded bg-slate-950/60 border border-white/5 hover:border-white/15 hover:text-white flex items-center justify-center gap-1.5 text-[10px] font-semibold col-span-2"
+              title="Take Map Screenshot"
+            >
+              <Camera className="w-3.5 h-3.5 text-indigo-400" />
+              Capture Map Image
+            </button>
+            <button
+              onClick={handleExportGeoJSON}
+              className="p-2 rounded bg-slate-950/60 border border-white/5 hover:border-white/15 hover:text-white flex items-center justify-center gap-1.5 text-[10px] font-semibold col-span-2"
+              title="Export Track GeoJSON"
+            >
+              <FileJson className="w-3.5 h-3.5 text-indigo-400" />
+              Export GeoJSON
+            </button>
+          </div>
+        </div>
+
         {/* Basemaps Toggle Drawer */}
         <div className="relative">
           <button

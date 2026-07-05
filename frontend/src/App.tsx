@@ -9,6 +9,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { GisLayerManager, type GisLayer } from './components/GisLayerManager';
 import { exportToCSV, exportToGeoJSON, exportToGeoTIFF, exportRawGeoJSON } from './utils/GisExportHelper';
 import { AIAssistantChat } from './components/AIAssistantChat';
+import { DataSourcesCard } from './components/DataSourcesCard';
 import { Shield, Cpu, Calendar, ShieldAlert, Layers } from 'lucide-react';
 
 const API_BASE = window.location.origin.includes('localhost') ? "http://127.0.0.1:8000" : window.location.origin;
@@ -300,6 +301,33 @@ function App() {
     }
   };
 
+  const stages = [
+    { name: "Formation / LPA", desc: "Low Pressure Area", minWind: 0, color: "text-slate-400 border-slate-500/20" },
+    { name: "Depression", desc: "Wind 17-27 kt", minWind: 17, color: "text-sky-400 border-sky-500/25" },
+    { name: "Deep Depression", desc: "Wind 28-33 kt", minWind: 28, color: "text-cyan-400 border-cyan-500/30" },
+    { name: "Cyclonic Storm", desc: "Wind 34-47 kt", minWind: 34, color: "text-indigo-400 border-indigo-500/40" },
+    { name: "Severe CS", desc: "Wind 48-63 kt", minWind: 48, color: "text-yellow-400 border-yellow-500/50" },
+    { name: "Very Severe CS", desc: "Wind 64-89 kt", minWind: 64, color: "text-amber-400 border-amber-500/60" },
+    { name: "Extremely Severe CS", desc: "Wind 90-119 kt", minWind: 90, color: "text-orange-400 border-orange-500/70" },
+    { name: "Super Cyclone", desc: "Wind >= 120 kt", minWind: 120, color: "text-red-400 border-red-500/90" }
+  ];
+
+  const getCurrentStageIndex = () => {
+    if (!cycloneTrack || cycloneTrack.length === 0) return -1;
+    const currentPt = cycloneTrack[timelineIndex];
+    if (!currentPt) return -1;
+    const wind = currentPt.wind_speed || 0;
+    
+    let matchedIdx = 0;
+    for (let i = 0; i < stages.length; i++) {
+      if (wind >= stages[i].minWind) {
+        matchedIdx = i;
+      }
+    }
+    return matchedIdx;
+  };
+  const activeStageIdx = getCurrentStageIndex();
+
   if (!user) {
     return <LoginScreen onLogin={handleLogin} />;
   }
@@ -351,89 +379,106 @@ function App() {
         </button>
       </div>
 
-      {/* 3. Floating Control Panels Sidebar (slide-out, left-aligned) - Desktop Only */}
+      {/* 3. Left Control Panel Sidebar - Desktop Only */}
       {!isMobile && (
-        <div className="absolute top-24 left-4 bottom-16 z-40 w-96 flex flex-col pointer-events-auto transition-sidebar glass-panel rounded-xl shadow-2xl">
+        <div className="absolute top-24 left-4 bottom-6 z-40 w-80 flex flex-col pointer-events-auto transition-sidebar glass-panel rounded-xl shadow-2xl overflow-hidden">
+          {/* Top section (65% height) */}
+          <div className="h-[65%] border-b border-white/5 overflow-hidden">
+            <HistoricalExplorer
+              onSelectCyclone={handleSelectCyclone}
+              selectedCycloneId={selectedCycloneId}
+              compareCycloneId={compareCycloneId}
+              compareMode={compareMode}
+              setCompareMode={setCompareMode}
+              API_BASE={API_BASE}
+            />
+          </div>
+          {/* Bottom section (35% height) - Category Phase Transitions */}
+          <div className="h-[35%] flex flex-col p-3.5 space-y-2 overflow-hidden bg-slate-950/20">
+            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 border-b border-white/5 pb-1.5">
+              <ShieldAlert className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+              Life Cycle Phase Timeline
+            </h3>
+            <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+              {stages.map((stage, idx) => {
+                const isActive = activeStageIdx === idx;
+                const isPast = activeStageIdx > idx;
+                return (
+                  <div
+                    key={idx}
+                    className={`border rounded-lg p-2 flex items-center justify-between transition-all ${
+                      isActive 
+                        ? 'bg-indigo-950/30 border-indigo-500 shadow-glow-blue scale-[1.01]' 
+                        : isPast 
+                          ? 'bg-slate-950/40 border-emerald-500/10 text-slate-500 opacity-60' 
+                          : 'bg-slate-950/20 border-white/5 text-slate-600'
+                    }`}
+                  >
+                    <div className="space-y-0.5">
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${isActive ? stage.color : ''}`}>
+                        {stage.name}
+                      </span>
+                      <span className="text-[8px] block font-mono">{stage.desc}</span>
+                    </div>
+                    {isActive && (
+                      <span className="w-2 h-2 rounded-full bg-indigo-400 animate-ping shadow-glow-blue" />
+                    )}
+                    {isPast && (
+                      <span className="text-[9px] text-emerald-400 font-bold uppercase">Passed</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3.5. Right Control Panel Sidebar - Desktop Only */}
+      {!isMobile && (
+        <div className="absolute top-24 right-4 bottom-6 z-40 w-[420px] flex flex-col pointer-events-auto transition-sidebar glass-panel rounded-xl shadow-2xl overflow-hidden">
           {/* Horizontal Navigation Tabs */}
-          <div className="grid grid-cols-5 border-b border-white/5 bg-slate-950/40 rounded-t-xl p-1 gap-1">
-            <button
-              onClick={() => setActiveTab('historical')}
-              className={`flex flex-col items-center justify-center py-2 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
-                activeTab === 'historical' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              Archive
-            </button>
-            
+          <div className="grid grid-cols-4 border-b border-white/5 bg-slate-950/40 rounded-t-xl p-1 gap-1">
             <button
               onClick={() => setActiveTab('forecast')}
-              className={`flex flex-col items-center justify-center py-2 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
+              className={`flex flex-col items-center justify-center py-2.5 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
                 activeTab === 'forecast' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <Cpu className="w-3.5 h-3.5" />
               Forecast
             </button>
-
-            <button
-              onClick={() => setActiveTab('layers')}
-              className={`flex flex-col items-center justify-center py-2 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
-                activeTab === 'layers' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              Layers
-            </button>
-            
             <button
               onClick={() => setActiveTab('damage')}
-              className={`flex flex-col items-center justify-center py-2 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
+              className={`flex flex-col items-center justify-center py-2.5 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
                 activeTab === 'damage' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <Shield className="w-3.5 h-3.5" />
               Impact
             </button>
-
             <button
               onClick={() => setActiveTab('emergency')}
-              className={`flex flex-col items-center justify-center py-2 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
-                activeTab === 'emergency' ? 'bg-red-500/20 text-red-400 border border-red-500/25 shadow-inner animate-pulse' : 'text-slate-400 hover:text-slate-200'
+              className={`flex flex-col items-center justify-center py-2.5 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
+                activeTab === 'emergency' ? 'bg-red-500/20 text-red-400 border border-red-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <ShieldAlert className="w-3.5 h-3.5" />
-              Dispatch
+              Emergency
+            </button>
+            <button
+              onClick={() => setActiveTab('layers')}
+              className={`flex flex-col items-center justify-center py-2.5 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
+                activeTab === 'layers' ? 'bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Layers
             </button>
           </div>
 
           {/* Dynamic sub-panels */}
           <div className="flex-1 overflow-hidden">
-            {activeTab === 'historical' && (
-              <div className="flex flex-col h-full overflow-hidden">
-                <div className="flex-1 overflow-hidden">
-                  <HistoricalExplorer
-                    onSelectCyclone={handleSelectCyclone}
-                    selectedCycloneId={selectedCycloneId}
-                    compareCycloneId={compareCycloneId}
-                    compareMode={compareMode}
-                    setCompareMode={setCompareMode}
-                    API_BASE={API_BASE}
-                  />
-                </div>
-                {compareMode && (
-                  <div className="p-3 border-t border-white/5 bg-slate-950/40">
-                    <MapComparisonPanel
-                      cycloneA={cycloneA}
-                      cycloneB={cycloneB}
-                      assessmentA={assessmentData}
-                      assessmentB={assessmentData2}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-            
             {activeTab === 'forecast' && (
               <AIForecastPanel
                 forecastPoints={forecastTrack}
@@ -445,14 +490,6 @@ function App() {
               />
             )}
 
-            {activeTab === 'layers' && (
-              <GisLayerManager
-                layers={gisLayers}
-                onChange={setGisLayers}
-                onExport={handleExportLayer}
-              />
-            )}
-            
             {activeTab === 'damage' && (
               <DamageAssessment
                 assessmentData={assessmentData}
@@ -468,6 +505,16 @@ function App() {
                 landfallState={assessmentData?.district_details?.[0]?.state || "Odisha"}
                 onPlotSafeCorridors={() => setSafeCorridorsPlotted(!safeCorridorsPlotted)}
                 safeCorridorsPlotted={safeCorridorsPlotted}
+                onDownloadReport={handleDownloadReport}
+                downloadingReport={downloadingReport}
+              />
+            )}
+
+            {activeTab === 'layers' && (
+              <GisLayerManager
+                layers={gisLayers}
+                onChange={setGisLayers}
+                onExport={handleExportLayer}
               />
             )}
           </div>
@@ -557,70 +604,74 @@ function App() {
             );
           })}
         </div>
-      )}
+      )}      {/* 4. Floating Bottom Panel with Playback Timeline & Data Attributions */}
+      {!isMobile && (
+        <div className="absolute bottom-6 left-[345px] right-[445px] z-40 flex flex-col gap-2 pointer-events-auto">
+          {cycloneTrack.length > 0 && (
+            <div className="glass-panel rounded-xl px-5 py-3 shadow-2xl flex items-center justify-between gap-4 border border-white/10">
+              {/* Play/Pause Button */}
+              <button
+                onClick={() => {
+                  if (timelineIndex >= cycloneTrack.length - 1) {
+                    setTimelineIndex(0);
+                  }
+                  setIsPlaying(!isPlaying);
+                }}
+                className={`p-2 rounded-lg text-white font-semibold transition-all ${
+                  isPlaying ? 'bg-red-600/35 border border-red-500/30' : 'bg-indigo-600 hover:bg-indigo-500 shadow-glow-blue'
+                }`}
+              >
+                {isPlaying ? (
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                )}
+              </button>
 
-      {/* 4. Floating Time Travel Player Toolbar - Desktop Only */}
-      {!isMobile && cycloneTrack.length > 0 && (
-        <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 w-[650px] glass-panel rounded-xl px-5 py-3 shadow-2xl flex items-center justify-between gap-4 pointer-events-auto border border-white/10">
-          {/* Play/Pause Button */}
-          <button
-            onClick={() => {
-              if (timelineIndex >= cycloneTrack.length - 1) {
-                setTimelineIndex(0);
-              }
-              setIsPlaying(!isPlaying);
-            }}
-            className={`p-2 rounded-lg text-white font-semibold transition-all ${
-              isPlaying ? 'bg-red-600/35 border border-red-500/30' : 'bg-indigo-600 hover:bg-indigo-500 shadow-glow-blue'
-            }`}
-          >
-            {isPlaying ? (
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-            ) : (
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-            )}
-          </button>
+              {/* Timeline Slider */}
+              <div className="flex-1 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                  <span>Evolution Timeline</span>
+                  <span className="text-indigo-400">
+                    Step {timelineIndex + 1} of {cycloneTrack.length}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max={cycloneTrack.length - 1}
+                  value={timelineIndex}
+                  onChange={(e) => {
+                    setTimelineIndex(parseInt(e.target.value));
+                    setIsPlaying(false);
+                  }}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                />
+                <div className="flex items-center justify-between text-[9px] text-slate-500 font-mono">
+                  <span>{new Date(cycloneTrack[0]?.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit'})}</span>
+                  <span>{new Date(cycloneTrack[cycloneTrack.length - 1]?.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit'})}</span>
+                </div>
+              </div>
 
-          {/* Timeline Slider */}
-          <div className="flex-1 flex flex-col gap-1.5">
-            <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
-              <span>Evolution Timeline</span>
-              <span className="text-indigo-400">
-                Step {timelineIndex + 1} of {cycloneTrack.length}
-              </span>
+              {/* Live Phase Classification Display */}
+              <div className="border-l border-white/10 pl-4 py-1 flex flex-col gap-0.5 justify-center min-w-[170px]">
+                <span className="text-[10px] text-slate-400 uppercase tracking-widest font-medium">Cyclone Phase</span>
+                <span className={`text-xs font-bold leading-tight ${
+                  cycloneTrack[timelineIndex]?.category.includes('Super') ? 'text-red-400' :
+                  cycloneTrack[timelineIndex]?.category.includes('Extremely') ? 'text-orange-400' :
+                  cycloneTrack[timelineIndex]?.category.includes('Very Severe') ? 'text-amber-400' : 'text-sky-400'
+                }`}>
+                  {cycloneTrack[timelineIndex]?.category.replace('Cyclonic Storm', 'CS')}
+                </span>
+                <div className="flex gap-2 text-[9px] text-slate-500 font-mono mt-0.5">
+                  <span>Wind: {cycloneTrack[timelineIndex]?.wind_speed.toFixed(0)} kt</span>
+                  <span>P: {cycloneTrack[timelineIndex]?.pressure.toFixed(0)} hPa</span>
+                </div>
+              </div>
             </div>
-            <input
-              type="range"
-              min="0"
-              max={cycloneTrack.length - 1}
-              value={timelineIndex}
-              onChange={(e) => {
-                setTimelineIndex(parseInt(e.target.value));
-                setIsPlaying(false);
-              }}
-              className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-            />
-            <div className="flex items-center justify-between text-[9px] text-slate-500 font-mono">
-              <span>{new Date(cycloneTrack[0]?.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit'})}</span>
-              <span>{new Date(cycloneTrack[cycloneTrack.length - 1]?.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit'})}</span>
-            </div>
-          </div>
-
-          {/* Live Phase Classification Display */}
-          <div className="border-l border-white/10 pl-4 py-1 flex flex-col gap-0.5 justify-center min-w-[170px]">
-            <span className="text-[10px] text-slate-400 uppercase tracking-widest font-medium">Cyclone Phase</span>
-            <span className={`text-xs font-bold leading-tight ${
-              cycloneTrack[timelineIndex]?.category.includes('Super') ? 'text-red-400' :
-              cycloneTrack[timelineIndex]?.category.includes('Extremely') ? 'text-orange-400' :
-              cycloneTrack[timelineIndex]?.category.includes('Very Severe') ? 'text-amber-400' : 'text-sky-400'
-            }`}>
-              {cycloneTrack[timelineIndex]?.category.replace('Cyclonic Storm', 'CS')}
-            </span>
-            <div className="flex gap-2 text-[9px] text-slate-500 font-mono mt-0.5">
-              <span>Wind: {cycloneTrack[timelineIndex]?.wind_speed.toFixed(0)} kt</span>
-              <span>P: {cycloneTrack[timelineIndex]?.pressure.toFixed(0)} hPa</span>
-            </div>
-          </div>
+          )}
+          
+          <DataSourcesCard />
         </div>
       )}
 
