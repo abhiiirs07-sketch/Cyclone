@@ -72,33 +72,28 @@ const BASEMAPS: { [key: string]: { name: string; url: string | null } } = {
   terrain: { name: 'USGS Terrain Relief', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}' }
 };
 
-const MAPBOX_BASEMAPS: { [key: string]: { name: string; url: string | null; isMapbox: boolean } } = {
-  mapbox_satellite_streets: { name: 'Mapbox Satellite Streets (HD Vector)', url: null, isMapbox: true },
-  mapbox_outdoors: { name: 'Mapbox Outdoors Terrain', url: null, isMapbox: true },
-  mapbox_streets: { name: 'Mapbox Navigation Streets', url: null, isMapbox: true },
-  mapbox_light: { name: 'Mapbox Light Theme', url: null, isMapbox: true }
-};
-
-const getBaseStyleUrl = (basemapId: string, token: string | null): string => {
-  if (token) {
-    if (basemapId === 'dark') {
-      return `https://api.mapbox.com/styles/v1/mapbox/dark-v11?access_token=${token}`;
-    }
-    if (basemapId === 'mapbox_satellite_streets') {
-      return `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12?access_token=${token}`;
-    }
-    if (basemapId === 'mapbox_outdoors') {
-      return `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12?access_token=${token}`;
-    }
-    if (basemapId === 'mapbox_streets') {
-      return `https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${token}`;
-    }
-    if (basemapId === 'mapbox_light') {
-      return `https://api.mapbox.com/styles/v1/mapbox/light-v11?access_token=${token}`;
-    }
+const getMapboxBasemaps = (token: string): { [key: string]: { name: string; url: string; isMapbox: boolean } } => ({
+  mapbox_satellite_streets: {
+    name: 'Mapbox Satellite Streets (HD)',
+    url: `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/256/{z}/{x}/{y}?access_token=${token}`,
+    isMapbox: true
+  },
+  mapbox_outdoors: {
+    name: 'Mapbox Outdoors Terrain',
+    url: `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}?access_token=${token}`,
+    isMapbox: true
+  },
+  mapbox_streets: {
+    name: 'Mapbox Navigation Streets',
+    url: `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}?access_token=${token}`,
+    isMapbox: true
+  },
+  mapbox_light: {
+    name: 'Mapbox Light Theme',
+    url: `https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/256/{z}/{x}/{y}?access_token=${token}`,
+    isMapbox: true
   }
-  return 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
-};
+});
 
 export const MapContainer: React.FC<MapContainerProps> = ({
   cycloneTrack,
@@ -133,7 +128,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
   const basemapOptions = {
     ...BASEMAPS,
-    ...(mapboxToken ? MAPBOX_BASEMAPS : {})
+    ...(mapboxToken ? getMapboxBasemaps(mapboxToken) : {})
   };
 
   // Swipe Comparison state
@@ -231,10 +226,9 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   useEffect(() => {
     if (!leftMapContainerRef.current) return;
 
-    const initialStyle = getBaseStyleUrl('dark', mapboxToken);
     const map1 = new maplibregl.Map({
       container: leftMapContainerRef.current,
-      style: initialStyle,
+      style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
       center: [82.5, 15.5],
       zoom: 5.0,
       pitch: 15,
@@ -264,10 +258,9 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       return;
     }
 
-    const initialStyle = getBaseStyleUrl('dark', mapboxToken);
     const map2 = new maplibregl.Map({
       container: rightMapContainerRef.current,
-      style: initialStyle,
+      style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
       center: leftMap ? leftMap.getCenter() : [82.5, 15.5],
       zoom: leftMap ? leftMap.getZoom() : 5.0,
       pitch: leftMap ? leftMap.getPitch() : 15,
@@ -560,20 +553,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const applyStyleAndBasemap = (mapInstance: maplibregl.Map, basemapId: string, layerId: string) => {
     if (!mapInstance) return;
     
-    // Choose base vector style
-    const isMapboxVector = basemapId.startsWith('mapbox_');
-    const baseVectorId = isMapboxVector ? basemapId : 'dark';
-    const baseStyle = getBaseStyleUrl(baseVectorId, mapboxToken);
-    
-    // Check if style changed
-    const currentStyleUrl = (mapInstance as any)._styleUrl;
-    if (currentStyleUrl !== baseStyle) {
-      (mapInstance as any)._styleUrl = baseStyle;
-      mapInstance.setStyle(baseStyle);
-    }
-    
-    const isRasterBasemap = ['osm', 'satellite', 'hybrid', 'terrain'].includes(basemapId);
-    const tileUrl = isRasterBasemap ? (BASEMAPS[basemapId]?.url || null) : null;
+    const b = (basemapOptions as any)[basemapId];
+    const tileUrl = b ? b.url : null;
     
     const applyRaster = () => {
       updateBasemap(mapInstance, tileUrl, layerId);
