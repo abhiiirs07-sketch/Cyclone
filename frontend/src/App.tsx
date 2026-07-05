@@ -10,7 +10,7 @@ import { GisLayerManager, type GisLayer } from './components/GisLayerManager';
 import { exportToCSV, exportToGeoJSON, exportToGeoTIFF, exportRawGeoJSON } from './utils/GisExportHelper';
 import { AIAssistantChat } from './components/AIAssistantChat';
 import { DataSourcesCard } from './components/DataSourcesCard';
-import { Shield, Cpu, Calendar, ShieldAlert, Layers } from 'lucide-react';
+import { Shield, Cpu, Calendar, ShieldAlert, Layers, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const API_BASE = window.location.origin.includes('localhost') ? "http://127.0.0.1:8000" : window.location.origin;
 
@@ -80,6 +80,8 @@ function App() {
   const [gisLayers, setGisLayers] = useState<GisLayer[]>(INITIAL_GIS_LAYERS);
   const [isMobile, setIsMobile] = useState<boolean>(window.innerWidth < 768);
   const [mobilePanelOpen, setMobilePanelOpen] = useState<boolean>(false);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState<boolean>(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState<boolean>(true);
 
   useEffect(() => {
     const handleResize = () => {
@@ -381,7 +383,24 @@ function App() {
 
       {/* 3. Left Control Panel Sidebar - Desktop Only */}
       {!isMobile && (
-        <div className="absolute top-24 left-4 bottom-6 z-40 w-80 flex flex-col pointer-events-auto transition-sidebar glass-panel rounded-xl shadow-2xl overflow-hidden">
+        <div
+          className={`absolute top-24 bottom-6 z-40 w-80 flex flex-col pointer-events-auto transition-all duration-300 glass-panel rounded-xl shadow-2xl ${
+            leftSidebarOpen ? 'left-4 translate-x-0' : '-translate-x-[340px] left-0'
+          }`}
+        >
+          {/* Collapse/Expand toggle tab */}
+          <button
+            onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
+            className="absolute top-1/2 -right-8 -translate-y-1/2 bg-slate-900/90 hover:bg-indigo-600 border border-white/10 text-slate-300 hover:text-white w-8 h-12 rounded-r-lg flex items-center justify-center transition-all cursor-pointer shadow-glow-blue pointer-events-auto"
+            title={leftSidebarOpen ? "Collapse Control Panel" : "Expand Control Panel"}
+          >
+            {leftSidebarOpen ? (
+              <ChevronLeft className="w-5 h-5" />
+            ) : (
+              <ChevronRight className="w-5 h-5" />
+            )}
+          </button>
+
           {/* Top section (65% height) */}
           <div className="h-[65%] border-b border-white/5 overflow-hidden">
             <HistoricalExplorer
@@ -436,7 +455,24 @@ function App() {
 
       {/* 3.5. Right Control Panel Sidebar - Desktop Only */}
       {!isMobile && (
-        <div className="absolute top-24 right-4 bottom-6 z-40 w-[420px] flex flex-col pointer-events-auto transition-sidebar glass-panel rounded-xl shadow-2xl overflow-hidden">
+        <div
+          className={`absolute top-24 bottom-6 z-40 w-[420px] flex flex-col pointer-events-auto transition-all duration-300 glass-panel rounded-xl shadow-2xl ${
+            rightSidebarOpen ? 'right-4 translate-x-0' : 'translate-x-[450px] right-0'
+          }`}
+        >
+          {/* Collapse/Expand toggle tab */}
+          <button
+            onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+            className="absolute top-1/2 -left-8 -translate-y-1/2 bg-slate-900/90 hover:bg-indigo-600 border border-white/10 text-slate-300 hover:text-white w-8 h-12 rounded-l-lg flex items-center justify-center transition-all cursor-pointer shadow-glow-blue pointer-events-auto"
+            title={rightSidebarOpen ? "Collapse Analytics Panel" : "Expand Analytics Panel"}
+          >
+            {rightSidebarOpen ? (
+              <ChevronRight className="w-5 h-5" />
+            ) : (
+              <ChevronLeft className="w-5 h-5" />
+            )}
+          </button>
+
           {/* Horizontal Navigation Tabs */}
           <div className="grid grid-cols-4 border-b border-white/5 bg-slate-950/40 rounded-t-xl p-1 gap-1">
             <button
@@ -460,7 +496,7 @@ function App() {
             <button
               onClick={() => setActiveTab('emergency')}
               className={`flex flex-col items-center justify-center py-2.5 rounded-lg text-[9.5px] font-semibold gap-0.5 transition-all ${
-                activeTab === 'emergency' ? 'bg-red-500/20 text-red-400 border border-red-500/25 shadow-inner' : 'text-slate-400 hover:text-slate-200'
+                activeTab === 'emergency' ? 'bg-red-500/20 text-red-400 border border-red-500/25 shadow-inner animate-pulse' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <ShieldAlert className="w-3.5 h-3.5" />

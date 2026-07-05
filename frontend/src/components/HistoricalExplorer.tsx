@@ -32,6 +32,7 @@ export const HistoricalExplorer: React.FC<HistoricalExplorerProps> = ({
   
   // Charts visual state
   const [chartType, setChartType] = useState<'frequency' | 'damage'>('frequency');
+  const [activeView, setActiveView] = useState<'list' | 'analytics'>('list');
 
   // Fetch cyclones
   const fetchCyclones = async () => {
@@ -180,134 +181,155 @@ export const HistoricalExplorer: React.FC<HistoricalExplorerProps> = ({
         </div>
       </div>
 
-      {/* Split List & Charts Content */}
-      <div className="flex-1 overflow-hidden grid grid-rows-2 lg:grid-rows-1 lg:grid-cols-2">
-        {/* Cyclone list table */}
-        <div className="overflow-y-auto border-r border-white/5">
-          {loading ? (
-            <div className="flex items-center justify-center h-48 text-slate-400">
-              <span className="animate-pulse">Querying database...</span>
-            </div>
-          ) : cyclones.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-48 text-slate-500 gap-2">
-              <AlertTriangle className="w-8 h-8" />
-              <span>No cyclones match current criteria.</span>
-            </div>
-          ) : (
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="sticky top-0 bg-slate-900 border-b border-white/10 text-slate-400 font-medium">
-                <tr>
-                  <th className="p-3">Name</th>
-                  <th className="p-3">Year/Month</th>
-                  <th className="p-3">Category</th>
-                  <th className="p-3 text-right">Max Wind</th>
-                  <th className="p-3 text-right">Pressure</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {cyclones.map((c) => {
-                  const isSelected = selectedCycloneId === c.id;
-                  const isCompareSelected = compareCycloneId === c.id;
-                  return (
-                    <tr
-                      key={c.id}
-                      onClick={() => onSelectCyclone(c.id)}
-                      className={`cursor-pointer hover:bg-white/5 transition-colors ${
-                        isSelected ? 'bg-indigo-600/25 text-white font-medium border-l-2 border-indigo-500' : 
-                        isCompareSelected ? 'bg-purple-600/25 text-white font-medium border-l-2 border-purple-500' : ''
-                      }`}
-                    >
-                      <td className="p-3 font-semibold">{c.name}</td>
-                      <td className="p-3 text-slate-400">
-                        {c.year}-{c.month < 10 ? `0${c.month}` : c.month}
-                      </td>
-                      <td className="p-3">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                          c.peak_category.includes('Super') ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
-                          c.peak_category.includes('Extremely') ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30' :
-                          c.peak_category.includes('Very Severe') ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                          'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                        }`}>
-                          {c.peak_category.replace('Cyclonic Storm', 'CS')}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right font-mono">{c.max_wind_speed} kt</td>
-                      <td className="p-3 text-right font-mono text-slate-400">{c.min_pressure} hPa</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+      {/* View Switcher segment */}
+      <div className="px-3 py-2 border-b border-white/5 bg-slate-950/40 flex items-center justify-between">
+        <div className="flex bg-slate-950 border border-white/10 rounded p-0.5 text-[10px] font-semibold">
+          <button
+            onClick={() => setActiveView('list')}
+            className={`px-3 py-1 rounded transition-colors ${activeView === 'list' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+          >
+            Cyclone List ({cyclones.length})
+          </button>
+          <button
+            onClick={() => setActiveView('analytics')}
+            className={`px-3 py-1 rounded transition-colors ${activeView === 'analytics' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+          >
+            Archive Charts
+          </button>
         </div>
+        <div className="text-[9px] text-slate-500 uppercase tracking-widest font-mono">
+          Query Filters Applied
+        </div>
+      </div>
 
-        {/* Charts & Analytics Visualizer */}
-        <div className="flex flex-col p-4 bg-slate-950/30 overflow-y-auto">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold flex items-center gap-1.5 text-slate-300">
-              <BarChart2 className="w-4 h-4 text-indigo-400" />
-              Interactive Analytics
-            </h3>
-            <div className="flex bg-slate-900 border border-white/10 rounded p-0.5 text-[10px]">
-              <button
-                className={`px-2 py-1 rounded transition-colors ${chartType === 'frequency' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                onClick={() => setChartType('frequency')}
-              >
-                Frequency Trend
-              </button>
-              <button
-                className={`px-2 py-1 rounded transition-colors ${chartType === 'damage' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                onClick={() => setChartType('damage')}
-              >
-                Impact Stats
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 min-h-[180px]">
-            {chartType === 'frequency' ? (
-              <ResponsiveContainer width="100%" height="90%">
-                <AreaChart data={getFrequencyChartData()} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="freqColor" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4}/>
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0}/>
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="year" stroke="#64748b" fontSize={9} />
-                  <YAxis stroke="#64748b" fontSize={9} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }}
-                    labelStyle={{ color: '#94a3b8', fontSize: '10px' }}
-                    itemStyle={{ fontSize: '12px' }}
-                  />
-                  <Area type="monotone" dataKey="Count" stroke="#6366f1" strokeWidth={2} fillOpacity={1} fill="url(#freqColor)" />
-                </AreaChart>
-              </ResponsiveContainer>
+      {/* Main Panel Content */}
+      <div className="flex-1 overflow-hidden">
+        {activeView === 'list' ? (
+          <div className="h-full overflow-y-auto">
+            {loading ? (
+              <div className="flex items-center justify-center h-48 text-slate-400">
+                <span className="animate-pulse">Querying database...</span>
+              </div>
+            ) : cyclones.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-48 text-slate-500 gap-2">
+                <AlertTriangle className="w-8 h-8" />
+                <span>No cyclones match current criteria.</span>
+              </div>
             ) : (
-              <ResponsiveContainer width="100%" height="90%">
-                <BarChart data={getDamageChartData()} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
-                  <XAxis dataKey="name" stroke="#64748b" fontSize={8} tickFormatter={(tick) => tick.slice(0, 8)} />
-                  <YAxis stroke="#64748b" fontSize={9} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }}
-                    itemStyle={{ fontSize: '12px' }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: '9px', paddingTop: '5px' }} />
-                  <Bar dataKey="Damage ($M)" fill="#ef4444" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="Deaths" fill="#eab308" radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 bg-slate-900 border-b border-white/10 text-slate-400 font-medium z-10">
+                  <tr>
+                    <th className="p-3">Name</th>
+                    <th className="p-3">Year/Month</th>
+                    <th className="p-3">Category</th>
+                    <th className="p-3 text-right">Max Wind</th>
+                    <th className="p-3 text-right">Pressure</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {cyclones.map((c) => {
+                    const isSelected = selectedCycloneId === c.id;
+                    const isCompareSelected = compareCycloneId === c.id;
+                    return (
+                      <tr
+                        key={c.id}
+                        onClick={() => onSelectCyclone(c.id)}
+                        className={`cursor-pointer hover:bg-white/5 transition-colors ${
+                          isSelected ? 'bg-indigo-600/25 text-white font-medium border-l-2 border-indigo-500' : 
+                          isCompareSelected ? 'bg-purple-600/25 text-white font-medium border-l-2 border-purple-500' : ''
+                        }`}
+                      >
+                        <td className="p-3 font-semibold">{c.name}</td>
+                        <td className="p-3 text-slate-400">
+                          {c.year}-{c.month < 10 ? `0${c.month}` : c.month}
+                        </td>
+                        <td className="p-3">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                            c.peak_category.includes('Super') ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
+                            c.peak_category.includes('Extremely') ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30' :
+                            c.peak_category.includes('Very Severe') ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                            'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                          }`}>
+                            {c.peak_category.replace('Cyclonic Storm', 'CS')}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right font-mono">{c.max_wind_speed} kt</td>
+                        <td className="p-3 text-right font-mono text-slate-400">{c.min_pressure} hPa</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
-          
-          <div className="mt-2 text-[10px] text-slate-500 leading-relaxed text-center">
-            {chartType === 'frequency' 
-              ? "Shows the yearly incidence count of severe cyclones in the Indian region."
-              : "Highlights top severe historical events by reported direct economic losses and mortality."
-            }
+        ) : (
+          <div className="h-full flex flex-col p-4 bg-slate-950/30 overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold flex items-center gap-1.5 text-slate-300">
+                <BarChart2 className="w-4 h-4 text-indigo-400" />
+                Interactive Analytics
+              </h3>
+              <div className="flex bg-slate-900 border border-white/10 rounded p-0.5 text-[10px]">
+                <button
+                  className={`px-2 py-1 rounded transition-colors ${chartType === 'frequency' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                  onClick={() => setChartType('frequency')}
+                >
+                  Frequency Trend
+                </button>
+                <button
+                  className={`px-2 py-1 rounded transition-colors ${chartType === 'damage' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                  onClick={() => setChartType('damage')}
+                >
+                  Impact Stats
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-[220px]">
+              {chartType === 'frequency' ? (
+                <ResponsiveContainer width="100%" height="90%">
+                  <AreaChart data={getFrequencyChartData()} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="freqColor" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0}/>
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="year" stroke="#64748b" fontSize={9} />
+                    <YAxis stroke="#64748b" fontSize={9} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }}
+                      labelStyle={{ color: '#94a3b8', fontSize: '10px' }}
+                      itemStyle={{ fontSize: '12px' }}
+                    />
+                    <Area type="monotone" dataKey="Count" stroke="#6366f1" strokeWidth={2} fillOpacity={1} fill="url(#freqColor)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <ResponsiveContainer width="100%" height="90%">
+                  <BarChart data={getDamageChartData()} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                    <XAxis dataKey="name" stroke="#64748b" fontSize={8} tickFormatter={(tick) => tick.slice(0, 8)} />
+                    <YAxis stroke="#64748b" fontSize={9} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }}
+                      itemStyle={{ fontSize: '12px' }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '9px', paddingTop: '5px' }} />
+                    <Bar dataKey="Damage ($M)" fill="#ef4444" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="Deaths" fill="#eab308" radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+            
+            <div className="text-[10px] text-slate-500 leading-relaxed text-center">
+              {chartType === 'frequency' 
+                ? "Shows the yearly incidence count of severe cyclones in the Indian region."
+                : "Highlights top severe historical events by reported direct economic losses and mortality."
+              }
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
