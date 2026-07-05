@@ -72,6 +72,34 @@ const BASEMAPS: { [key: string]: { name: string; url: string | null } } = {
   terrain: { name: 'USGS Terrain Relief', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}' }
 };
 
+const MAPBOX_BASEMAPS: { [key: string]: { name: string; url: string | null; isMapbox: boolean } } = {
+  mapbox_satellite_streets: { name: 'Mapbox Satellite Streets (HD Vector)', url: null, isMapbox: true },
+  mapbox_outdoors: { name: 'Mapbox Outdoors Terrain', url: null, isMapbox: true },
+  mapbox_streets: { name: 'Mapbox Navigation Streets', url: null, isMapbox: true },
+  mapbox_light: { name: 'Mapbox Light Theme', url: null, isMapbox: true }
+};
+
+const getBaseStyleUrl = (basemapId: string, token: string | null): string => {
+  if (token) {
+    if (basemapId === 'dark') {
+      return `https://api.mapbox.com/styles/v1/mapbox/dark-v11?access_token=${token}`;
+    }
+    if (basemapId === 'mapbox_satellite_streets') {
+      return `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12?access_token=${token}`;
+    }
+    if (basemapId === 'mapbox_outdoors') {
+      return `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12?access_token=${token}`;
+    }
+    if (basemapId === 'mapbox_streets') {
+      return `https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${token}`;
+    }
+    if (basemapId === 'mapbox_light') {
+      return `https://api.mapbox.com/styles/v1/mapbox/light-v11?access_token=${token}`;
+    }
+  }
+  return 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+};
+
 export const MapContainer: React.FC<MapContainerProps> = ({
   cycloneTrack,
   forecastTrack,
@@ -94,10 +122,16 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   
   // Basemap config
+  const [mapboxToken, setMapboxToken] = useState<string | null>(localStorage.getItem('mapbox_token'));
   const [leftBasemap, setLeftBasemap] = useState<string>('dark');
   const [rightBasemap, setRightBasemap] = useState<string>('satellite');
   const [showBasemapMenu, setShowBasemapMenu] = useState<boolean>(false);
   const [showLayersMenu, setShowLayersMenu] = useState<boolean>(false);
+
+  const basemapOptions = {
+    ...BASEMAPS,
+    ...(mapboxToken ? MAPBOX_BASEMAPS : {})
+  };
 
   // Swipe Comparison state
   const [swipeActive, setSwipeActive] = useState<boolean>(false);
@@ -194,10 +228,10 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   useEffect(() => {
     if (!leftMapContainerRef.current) return;
 
-    // Use Carto Dark Matter GL Style as the underlying vector baseline
+    const initialStyle = getBaseStyleUrl('dark', mapboxToken);
     const map1 = new maplibregl.Map({
       container: leftMapContainerRef.current,
-      style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+      style: initialStyle,
       center: [82.5, 15.5],
       zoom: 5.0,
       pitch: 15,
@@ -226,9 +260,10 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       return;
     }
 
+    const initialStyle = getBaseStyleUrl('dark', mapboxToken);
     const map2 = new maplibregl.Map({
       container: rightMapContainerRef.current,
-      style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+      style: initialStyle,
       center: leftMap ? leftMap.getCenter() : [82.5, 15.5],
       zoom: leftMap ? leftMap.getZoom() : 5.0,
       pitch: leftMap ? leftMap.getPitch() : 15,
@@ -517,27 +552,44 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     };
   }, [leftMap, rightMap, gisLayers]);
 
-  useEffect(() => {
-    if (!leftMap) return;
-    const applyLeftBasemap = () => {
-      const b = BASEMAPS[leftBasemap];
-      updateBasemap(leftMap, b.url, 'left-raster-basemap');
+  const applyStyleAndBasemap = (mapInstance: maplibregl.Map, basemapId: string, layerId: string) => {
+    if (!mapInstance) return;
+    
+    // Choose base vector style
+    const isMapboxVector = basemapId.startsWith('mapbox_');
+    const baseVectorId = isMapboxVector ? basemapId : 'dark';
+    const baseStyle = getBaseStyleUrl(baseVectorId, mapboxToken);
+    
+    // Check if style changed
+    const currentStyleUrl = (mapInstance as any)._styleUrl;
+    if (currentStyleUrl !== baseStyle) {
+      (mapInstance as any)._styleUrl = baseStyle;
+      mapInstance.setStyle(baseStyle);
+    }
+    
+    const isRasterBasemap = ['osm', 'satellite', 'hybrid', 'terrain'].includes(basemapId);
+    const tileUrl = isRasterBasemap ? (BASEMAPS[basemapId]?.url || null) : null;
+    
+    const applyRaster = () => {
+      updateBasemap(mapInstance, tileUrl, layerId);
     };
 
-    if (leftMap.isStyleLoaded()) applyLeftBasemap();
-    else leftMap.once('load', applyLeftBasemap);
-  }, [leftMap, leftBasemap]);
+    if (mapInstance.isStyleLoaded()) {
+      applyRaster();
+    } else {
+      mapInstance.once('style.load', applyRaster);
+    }
+  };
+
+  useEffect(() => {
+    if (!leftMap) return;
+    applyStyleAndBasemap(leftMap, leftBasemap, 'left-raster-basemap');
+  }, [leftMap, leftBasemap, mapboxToken]);
 
   useEffect(() => {
     if (!rightMap || !swipeActive) return;
-    const applyRightBasemap = () => {
-      const b = BASEMAPS[rightBasemap];
-      updateBasemap(rightMap, b.url, 'right-raster-basemap');
-    };
-
-    if (rightMap.isStyleLoaded()) applyRightBasemap();
-    else rightMap.once('load', applyRightBasemap);
-  }, [rightMap, rightBasemap, swipeActive]);
+    applyStyleAndBasemap(rightMap, rightBasemap, 'right-raster-basemap');
+  }, [rightMap, rightBasemap, swipeActive, mapboxToken]);
 
   // Helper: Geodesic Circle Generator
   const generateGeodesicCircle = (center: [number, number], radiusKm: number, steps = 64): any => {
@@ -1220,14 +1272,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           </button>
           
           {showBasemapMenu && (
-            <div className="absolute right-0 mt-1.5 w-60 bg-slate-950/95 backdrop-blur border border-white/10 rounded-xl p-3 shadow-2xl space-y-3 z-50 text-xs">
+            <div className="absolute right-0 mt-1.5 w-64 bg-slate-950/95 backdrop-blur border border-white/10 rounded-xl p-3 shadow-2xl space-y-3 z-50 text-xs max-h-[75vh] overflow-y-auto">
               <div className="space-y-1.5">
                 <span className="font-semibold text-slate-400 block text-[9.5px] uppercase tracking-wider">Left Viewport</span>
-                {Object.entries(BASEMAPS).map(([key, item]) => (
+                {Object.entries(basemapOptions).map(([key, item]) => (
                   <button
                     key={key}
                     onClick={() => setLeftBasemap(key)}
-                    className={`w-full text-left p-1.5 rounded transition-all ${leftBasemap === key ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/30' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}
+                    className={`w-full text-left p-1.5 rounded transition-all text-[11px] ${leftBasemap === key ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 font-semibold' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}
                   >
                     {item.name}
                   </button>
@@ -1237,17 +1289,53 @@ export const MapContainer: React.FC<MapContainerProps> = ({
               {swipeActive && (
                 <div className="space-y-1.5 border-t border-white/5 pt-2.5">
                   <span className="font-semibold text-slate-400 block text-[9.5px] uppercase tracking-wider">Right Viewport</span>
-                  {Object.entries(BASEMAPS).map(([key, item]) => (
+                  {Object.entries(basemapOptions).map(([key, item]) => (
                     <button
                       key={key}
                       onClick={() => setRightBasemap(key)}
-                      className={`w-full text-left p-1.5 rounded transition-all ${rightBasemap === key ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/30' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}
+                      className={`w-full text-left p-1.5 rounded transition-all text-[11px] ${rightBasemap === key ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 font-semibold' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}
                     >
                       {item.name}
                     </button>
                   ))}
                 </div>
               )}
+
+              <div className="border-t border-white/5 pt-2.5 space-y-1.5">
+                <span className="font-semibold text-slate-400 block text-[9.5px] uppercase tracking-wider">Mapbox Access Token</span>
+                <div className="flex gap-1.5">
+                  <input
+                    type="password"
+                    placeholder="Enter pk.eyJ..."
+                    className="flex-1 bg-slate-900 border border-white/10 rounded px-2 py-1 text-[10px] text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                    value={mapboxToken || ''}
+                    onChange={(e) => {
+                      const val = e.target.value.trim();
+                      setMapboxToken(val || null);
+                      if (val) {
+                        localStorage.setItem('mapbox_token', val);
+                      } else {
+                        localStorage.removeItem('mapbox_token');
+                      }
+                    }}
+                  />
+                  {mapboxToken && (
+                    <button
+                      onClick={() => {
+                        setMapboxToken(null);
+                        localStorage.removeItem('mapbox_token');
+                      }}
+                      className="text-red-400 hover:text-red-300 text-[10px] font-bold px-1"
+                      title="Clear Token"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <span className="text-[8.5px] text-slate-500 block leading-tight">
+                  Enter a Mapbox API token to unlock HD Vector satellite imagery, Outdoors, and Streets basemaps.
+                </span>
+              </div>
             </div>
           )}
         </div>
