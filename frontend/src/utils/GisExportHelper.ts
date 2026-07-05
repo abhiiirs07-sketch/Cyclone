@@ -23,7 +23,7 @@ export const exportToGeoJSON = (points: { lat: number; lon: number; [key: string
             coordinates: [coordinates]
           },
           properties: {
-            exporter: 'GeoCyclone India',
+            exporter: 'CYCLONE AI',
             timestamp: new Date().toISOString(),
             dataType: 'Area of Interest'
           }
@@ -43,7 +43,7 @@ export const exportToGeoJSON = (points: { lat: number; lon: number; [key: string
             coordinates: lineCoordinates
           },
           properties: {
-            exporter: 'GeoCyclone India',
+            exporter: 'CYCLONE AI',
             timestamp: new Date().toISOString(),
             dataType: 'Cyclone Track Line'
           }

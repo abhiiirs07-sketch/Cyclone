@@ -64,8 +64,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             <Shield className="w-8 h-8 text-indigo-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-wider uppercase text-slate-100">GeoCyclone India</h1>
-            <p className="text-[10px] text-indigo-300 font-bold uppercase tracking-widest mt-1">Real-Time Risk Decision System</p>
+            <h1 className="text-xl font-bold tracking-wider uppercase text-slate-100">CYCLONE AI</h1>
+            <p className="text-[9px] text-indigo-300 font-bold uppercase tracking-widest mt-1">Advanced Cyclone Intelligence & Disaster Management Platform</p>
           </div>
         </div>
 

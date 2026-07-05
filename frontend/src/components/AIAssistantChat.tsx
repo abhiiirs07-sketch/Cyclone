@@ -11,7 +11,7 @@ export const AIAssistantChat: React.FC<AIAssistantChatProps> = ({ API_BASE }) =>
   const [chatHistory, setChatHistory] = useState<Array<{ sender: 'bot' | 'user'; text: string }>>([
     {
       sender: 'bot',
-      text: "Hello! I am the **GeoCyclone AI Decision Assistant**.\n\n" +
+      text: "Hello! I am the **CYCLONE AI Decision Assistant**.\n\n" +
             "You can query the database using natural language. Try asking me:\n" +
             "- *'Show strongest cyclone after 1999'*\n" +
             "- *'Compare Amphan and Fani'*\n" +

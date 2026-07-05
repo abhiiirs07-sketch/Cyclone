@@ -120,6 +120,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const [leftMap, setLeftMap] = useState<maplibregl.Map | null>(null);
   const [rightMap, setRightMap] = useState<maplibregl.Map | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [projection, setProjection] = useState<'globe' | 'mercator'>('globe');
   
   // Basemap config
   const [mapboxToken, setMapboxToken] = useState<string | null>(
@@ -176,7 +177,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     const canvas = leftMap.getCanvas();
     const dataUrl = canvas.toDataURL("image/png");
     const link = document.createElement("a");
-    link.download = `GeoCyclone_Map_Snapshot.png`;
+    link.download = `CycloneAI_Map_Snapshot.png`;
     link.href = dataUrl;
     link.click();
   };
@@ -238,7 +239,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       zoom: 5.0,
       pitch: 15,
       bearing: 0,
-      preserveDrawingBuffer: true
+      preserveDrawingBuffer: true,
+      projection: { type: 'globe' }
     } as any);
 
     map1.on('mousemove', (e) => {
@@ -270,7 +272,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       zoom: leftMap ? leftMap.getZoom() : 5.0,
       pitch: leftMap ? leftMap.getPitch() : 15,
       bearing: leftMap ? leftMap.getBearing() : 0,
-      preserveDrawingBuffer: true
+      preserveDrawingBuffer: true,
+      projection: { type: 'globe' }
     } as any);
 
     setRightMap(map2);
@@ -592,6 +595,26 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     if (!rightMap || !swipeActive) return;
     applyStyleAndBasemap(rightMap, rightBasemap, 'right-raster-basemap');
   }, [rightMap, rightBasemap, swipeActive, mapboxToken]);
+
+  useEffect(() => {
+    if (leftMap) {
+      try {
+        leftMap.setProjection({ type: projection } as any);
+      } catch (e) {
+        console.warn("Left map projection change failed:", e);
+      }
+    }
+  }, [leftMap, projection]);
+
+  useEffect(() => {
+    if (rightMap) {
+      try {
+        rightMap.setProjection({ type: projection } as any);
+      } catch (e) {
+        console.warn("Right map projection change failed:", e);
+      }
+    }
+  }, [rightMap, projection]);
 
   // Helper: Geodesic Circle Generator
   const generateGeodesicCircle = (center: [number, number], radiusKm: number, steps = 64): any => {
@@ -1243,6 +1266,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             >
               <Compass className="w-3.5 h-3.5 text-indigo-400" />
               True North
+            </button>
+            <button
+              onClick={() => setProjection(projection === 'globe' ? 'mercator' : 'globe')}
+              className="p-2 rounded bg-slate-950/60 border border-white/5 hover:border-white/15 hover:text-white flex items-center justify-center gap-1.5 text-[10px] font-semibold col-span-2"
+              title="Toggle Globe vs 2D Mercator Projection"
+            >
+              <MapIcon className="w-3.5 h-3.5 text-indigo-400" />
+              {projection === 'globe' ? '2D Mercator View' : '3D Globe View'}
             </button>
             <button
               onClick={handleCaptureScreenshot}

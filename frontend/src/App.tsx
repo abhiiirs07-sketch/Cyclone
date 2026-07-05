@@ -361,8 +361,8 @@ function App() {
             <Shield className="w-5 h-5 text-indigo-400 animate-pulse" />
           </div>
           <div>
-            <h1 className="text-sm font-bold tracking-wider text-slate-100 uppercase">GeoCyclone India</h1>
-            <p className="text-[10px] text-indigo-300 font-semibold uppercase tracking-widest mt-0.5">Real-Time Risk Decision System</p>
+            <h1 className="text-sm font-bold tracking-wider text-slate-100 uppercase">CYCLONE AI</h1>
+            <p className="text-[9px] text-indigo-300 font-semibold uppercase tracking-widest mt-0.5">Advanced Cyclone Intelligence & Disaster Management Platform</p>
           </div>
         </div>
       </div>
