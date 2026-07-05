@@ -122,7 +122,9 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   
   // Basemap config
-  const [mapboxToken, setMapboxToken] = useState<string | null>(localStorage.getItem('mapbox_token'));
+  const [mapboxToken, setMapboxToken] = useState<string | null>(
+    localStorage.getItem('mapbox_token') || (import.meta.env.VITE_MAPBOX_TOKEN as string) || null
+  );
   const [leftBasemap, setLeftBasemap] = useState<string>('dark');
   const [rightBasemap, setRightBasemap] = useState<string>('satellite');
   const [showBasemapMenu, setShowBasemapMenu] = useState<boolean>(false);
