@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { FALLBACK_STORMS, generateFallbackTrack, generateFallbackAssessment, generateFallbackForecast } from './utils/fallbackData';
 import { MapContainer } from './components/MapContainer';
 import { HistoricalExplorer } from './components/HistoricalExplorer';
 import { AIForecastPanel } from './components/AIForecastPanel';
@@ -156,11 +157,25 @@ function App() {
   const fetchCycloneDataSlot = async (id: number, slot: 1 | 2) => {
     setLoadingAssessment(true);
     try {
-      const trackRes = await fetch(`${API_BASE}/api/cyclones/${id}`);
-      const trackData = await trackRes.json();
+      let trackData, assessData;
       
-      const assessRes = await fetch(`${API_BASE}/api/cyclones/${id}/assessment`);
-      const assessData = await assessRes.json();
+      try {
+        const trackRes = await fetch(`${API_BASE}/api/cyclones/${id}`);
+        if (!trackRes.ok) throw new Error("API track error");
+        trackData = await trackRes.json();
+        
+        const assessRes = await fetch(`${API_BASE}/api/cyclones/${id}/assessment`);
+        if (!assessRes.ok) throw new Error("API assessment error");
+        assessData = await assessRes.json();
+      } catch (apiErr) {
+        console.warn("Using local fallback cyclone track/assessment data:", apiErr);
+        const metadata = FALLBACK_STORMS.find(s => s.id === id) || FALLBACK_STORMS[3];
+        const track = generateFallbackTrack(id);
+        const assessment = generateFallbackAssessment(id);
+        
+        trackData = { track, metadata };
+        assessData = assessment;
+      }
       
       if (slot === 1) {
         setCycloneTrack(trackData.track);
@@ -187,10 +202,17 @@ function App() {
     if (!selectedCycloneId) return;
     setLoadingForecast(true);
     try {
-      const res = await fetch(`${API_BASE}/api/cyclones/${selectedCycloneId}/forecast`, {
-        method: 'POST'
-      });
-      const data = await res.json();
+      let data;
+      try {
+        const res = await fetch(`${API_BASE}/api/cyclones/${selectedCycloneId}/forecast`, {
+          method: 'POST'
+        });
+        if (!res.ok) throw new Error("API forecast error");
+        data = await res.json();
+      } catch (apiErr) {
+        console.warn("Using local fallback AI forecast generator:", apiErr);
+        data = generateFallbackForecast(cycloneTrack);
+      }
       setForecastTrack(data);
       
       // Navigate to forecast panel

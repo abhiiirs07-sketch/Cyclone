@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { FALLBACK_STORMS } from '../utils/fallbackData';
 import { Search, Filter, Calendar, MapPin, Download, BarChart2, TrendingUp, AlertTriangle, Columns } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, AreaChart, Area, Legend } from 'recharts';
 
@@ -46,7 +47,9 @@ export const HistoricalExplorer: React.FC<HistoricalExplorerProps> = ({
       if (state) params.append('state', state);
       
       const res = await fetch(`${API_BASE}/api/cyclones?${params.toString()}`);
+      if (!res.ok) throw new Error("API network error");
       const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) throw new Error("No data returned");
       
       // Client-side text search filter
       let filtered = data;
@@ -56,7 +59,15 @@ export const HistoricalExplorer: React.FC<HistoricalExplorerProps> = ({
       
       setCyclones(filtered);
     } catch (err) {
-      console.error("Error fetching historical cyclones:", err);
+      console.warn("Using local fallback cyclone archive dataset:", err);
+      let filtered = FALLBACK_STORMS;
+      if (year) filtered = filtered.filter(c => c.year === parseInt(year));
+      if (month) filtered = filtered.filter(c => c.month === parseInt(month));
+      if (basin) filtered = filtered.filter(c => c.basin === basin);
+      if (category) filtered = filtered.filter(c => c.peak_category.toLowerCase().includes(category.toLowerCase()) || category.toLowerCase().includes(c.peak_category.toLowerCase()));
+      if (state) filtered = filtered.filter(c => c.landfall_state === state);
+      if (search) filtered = filtered.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+      setCyclones(filtered);
     } finally {
       setLoading(false);
     }
